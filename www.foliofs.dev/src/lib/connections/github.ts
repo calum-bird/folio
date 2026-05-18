@@ -108,7 +108,7 @@ export function buildGitHubConnection(
     scopes: parseScopes(token.scope),
     status: "active",
     secretArn,
-    outputPrefix: outputPrefixForConnection(userId, "github", connectionId),
+    outputPrefix: outputPrefixForConnection(userId, "github"),
     nextSyncAt,
     createdAt: now,
     updatedAt: now,

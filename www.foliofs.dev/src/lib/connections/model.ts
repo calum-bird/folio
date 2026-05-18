@@ -32,6 +32,7 @@ export type ConnectionRecord = {
   lastSyncStartedAt?: string;
   lastSyncFinishedAt?: string;
   lastSyncError?: string;
+  syncFailureCount?: number;
   leaseOwner?: string;
   leaseExpiresAt?: string;
   createdAt: string;
@@ -78,9 +79,8 @@ export function userDirFromSubject(subject: string) {
 export function outputPrefixForConnection(
   userId: string,
   provider: ConnectionProvider,
-  connectionId: string,
 ) {
-  return `${userDirFromSubject(userId)}/${provider}/${connectionId}`;
+  return `${userDirFromSubject(userId)}/${provider}`;
 }
 
 export function secretNameForConnection(
