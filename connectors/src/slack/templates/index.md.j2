@@ -1,0 +1,21 @@
+---
+provider: "slack"
+kind: "index"
+account: "{{ entity.account }}"
+channelCount: {{ entity.channels | length }}
+syncedAt: "{{ entity.synced_at }}"
+---
+
+# Slack
+
+Workspace: `{{ entity.account }}`
+
+{% if entity.channels %}
+## Channels
+
+{% for channel in entity.channels -%}
+- [#{{ channel.name }}](channels/{{ channel.slug }}.md)
+{% endfor %}
+{% else %}
+No channels found.
+{% endif %}

@@ -1,0 +1,33 @@
+---
+provider: "slack"
+kind: "channel"
+id: "{{ entity.id }}"
+name: "{{ entity.name }}"
+private: {{ entity.is_private }}
+member: {{ entity.is_member }}
+memberCount: {{ entity.num_members | default(value=0, boolean=true) }}
+messageCount: {{ entity.messages | length }}
+---
+
+# #{{ entity.name }}
+
+{{ entity.purpose.value | default(value="No purpose set.", boolean=true) }}
+
+- Topic: {{ entity.topic.value | default(value="none", boolean=true) }}
+- Members: {{ entity.num_members | default(value="unknown", boolean=true) }}
+- Recent messages: {{ entity.messages | length }}
+
+{% if entity.messages %}
+## Recent Messages
+
+{% for message in entity.messages -%}
+### {{ message.ts }}
+
+From: `{{ message.author }}`
+
+{{ message.text | default(value="(no text)", boolean=true) }}
+
+{% endfor %}
+{% else %}
+No recent messages found.
+{% endif %}

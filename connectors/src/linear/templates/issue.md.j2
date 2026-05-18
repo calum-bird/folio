@@ -1,0 +1,25 @@
+---
+provider: "linear"
+kind: "issue"
+id: "{{ entity.id }}"
+identifier: "{{ entity.identifier }}"
+url: "{{ entity.url }}"
+team: "{{ entity.team.key }}"
+state: "{{ entity.state.name }}"
+stateType: "{{ entity.state.state_type }}"
+priority: {{ entity.priority }}
+createdAt: "{{ entity.created_at }}"
+updatedAt: "{{ entity.updated_at }}"
+---
+
+# {{ entity.identifier }} {{ entity.title }}
+
+- URL: {{ entity.url }}
+- Team: {{ entity.team.name }} (`{{ entity.team.key }}`)
+- State: {{ entity.state.name }}
+- Assignee: {{ entity.assignee_name | default(value="unassigned", boolean=true) }}
+- Priority: {{ entity.priority }}
+
+## Description
+
+{{ entity.description | default(value="No description.", boolean=true) }}

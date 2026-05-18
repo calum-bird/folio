@@ -1,8 +1,10 @@
 pub mod connector;
 pub mod fs;
 pub mod github;
+pub mod linear;
 pub mod model;
 pub mod render;
+pub mod slack;
 
 use anyhow::Result;
 
