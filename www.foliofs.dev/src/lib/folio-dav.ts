@@ -124,14 +124,20 @@ function basename(path: string) {
   return segments.at(-1) ?? "folio";
 }
 
-function toResponseBody(contents: unknown) {
+function toResponseBody(contents: unknown): ArrayBuffer {
   if (contents instanceof ArrayBuffer) {
     return contents;
   }
 
   if (contents instanceof Uint8Array) {
-    return contents;
+    return toArrayBuffer(contents);
   }
 
-  return new TextEncoder().encode(String(contents));
+  return toArrayBuffer(new TextEncoder().encode(String(contents)));
+}
+
+function toArrayBuffer(contents: Uint8Array): ArrayBuffer {
+  const buffer = new ArrayBuffer(contents.byteLength);
+  new Uint8Array(buffer).set(contents);
+  return buffer;
 }
