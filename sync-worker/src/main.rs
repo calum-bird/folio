@@ -15,6 +15,8 @@ use foliofs_connectors::model::{
 use lambda_runtime::{run, service_fn, Error, LambdaEvent};
 use tracing_subscriber::EnvFilter;
 
+const MAX_SYNC_FAILURES: u32 = 3;
+
 #[derive(Clone)]
 struct State {
     dynamodb: DynamoDb,
@@ -54,13 +56,24 @@ async fn handler(event: LambdaEvent<SqsEvent>, state: State) -> Result<(), Error
 async fn sync_job(state: &State, job: SyncJob) -> Result<()> {
     let now = chrono::Utc::now();
     let connection = get_connection(state, &job).await?;
-    let leased = acquire_lease(state, &connection, now).await?;
+    let leased = match acquire_lease(state, &connection, now).await {
+        Ok(connection) => connection,
+        Err(error) if is_lease_conflict(&error) => {
+            tracing::info!(
+                provider = job.provider,
+                connection_id = job.connection_id,
+                "sync lease already held; acknowledging duplicate job"
+            );
+            return Ok(());
+        }
+        Err(error) => return Err(error),
+    };
     let result = sync_leased_connection(state, &leased).await;
 
     match result {
         Ok(cursor) => mark_success(state, &leased, now, cursor).await,
         Err(error) => {
-            let message = error.to_string();
+            let message = format!("{error:#}");
             mark_failure(state, &leased, now, &message).await?;
             Err(error)
         }
@@ -163,13 +176,14 @@ async fn mark_success(
         .table_name(&state.table_name)
         .key("pk", AttributeValue::S(connection.pk.clone()))
         .key("sk", AttributeValue::S(connection.sk.clone()))
-        .update_expression("SET #status = :status, nextSyncAt = :nextSyncAt, gsi1pk = :gsi1pk, gsi1sk = :gsi1sk, lastSyncFinishedAt = :now, updatedAt = :now, syncCursor = :cursor REMOVE leaseOwner, leaseExpiresAt, lastSyncError")
+        .update_expression("SET #status = :status, nextSyncAt = :nextSyncAt, gsi1pk = :gsi1pk, gsi1sk = :gsi1sk, lastSyncFinishedAt = :now, updatedAt = :now, syncCursor = :cursor, syncFailureCount = :zero REMOVE leaseOwner, leaseExpiresAt, lastSyncError")
         .expression_attribute_names("#status", "status")
         .expression_attribute_values(":status", AttributeValue::S("active".to_string()))
         .expression_attribute_values(":nextSyncAt", AttributeValue::S(next_sync_at))
         .expression_attribute_values(":gsi1pk", AttributeValue::S(ACTIVE_SYNC_PK.to_string()))
         .expression_attribute_values(":gsi1sk", AttributeValue::S(gsi1sk))
-        .expression_attribute_values(":now", AttributeValue::S(iso(now)));
+        .expression_attribute_values(":now", AttributeValue::S(iso(now)))
+        .expression_attribute_values(":zero", AttributeValue::N("0".to_string()));
 
     update = update.expression_attribute_values(":cursor", AttributeValue::S(cursor.unwrap_or_else(|| "full".to_string())));
     update.send().await.context("mark sync success")?;
@@ -182,6 +196,8 @@ async fn mark_failure(
     now: chrono::DateTime<chrono::Utc>,
     message: &str,
 ) -> Result<()> {
+    let failure_count = connection.sync_failure_count.saturating_add(1);
+    let status = failure_status(failure_count);
     let next_sync_at = iso(now + chrono::Duration::seconds(state.interval_seconds));
     let gsi1sk = sync_gsi_sk(
         &next_sync_at,
@@ -195,18 +211,31 @@ async fn mark_failure(
         .table_name(&state.table_name)
         .key("pk", AttributeValue::S(connection.pk.clone()))
         .key("sk", AttributeValue::S(connection.sk.clone()))
-        .update_expression("SET #status = :status, nextSyncAt = :nextSyncAt, gsi1pk = :gsi1pk, gsi1sk = :gsi1sk, lastSyncError = :message, lastSyncFinishedAt = :now, updatedAt = :now REMOVE leaseOwner, leaseExpiresAt")
+        .update_expression("SET #status = :status, nextSyncAt = :nextSyncAt, gsi1pk = :gsi1pk, gsi1sk = :gsi1sk, lastSyncError = :message, lastSyncFinishedAt = :now, updatedAt = :now, syncFailureCount = :failureCount REMOVE leaseOwner, leaseExpiresAt")
         .expression_attribute_names("#status", "status")
-        .expression_attribute_values(":status", AttributeValue::S("failed".to_string()))
+        .expression_attribute_values(":status", AttributeValue::S(status.to_string()))
         .expression_attribute_values(":nextSyncAt", AttributeValue::S(next_sync_at))
         .expression_attribute_values(":gsi1pk", AttributeValue::S(ACTIVE_SYNC_PK.to_string()))
         .expression_attribute_values(":gsi1sk", AttributeValue::S(gsi1sk))
         .expression_attribute_values(":message", AttributeValue::S(message.chars().take(1000).collect()))
+        .expression_attribute_values(":failureCount", AttributeValue::N(failure_count.to_string()))
         .expression_attribute_values(":now", AttributeValue::S(iso(now)))
         .send()
         .await
         .context("mark sync failure")?;
     Ok(())
+}
+
+fn failure_status(failure_count: u32) -> &'static str {
+    if failure_count >= MAX_SYNC_FAILURES {
+        return "reconnect_required";
+    }
+
+    "failed"
+}
+
+fn is_lease_conflict(error: &anyhow::Error) -> bool {
+    format!("{error:#}").contains("ConditionalCheckFailedException")
 }
 
 fn init_tracing() {

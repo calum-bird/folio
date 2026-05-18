@@ -188,7 +188,7 @@ resource "aws_security_group" "managed_instances" {
 
 resource "aws_security_group" "s3files" {
   name        = "${local.name}-s3files"
-  description = "S3 Files mount target access from FolioFS compute."
+  description = "S3 Files mount target access from ECS Managed Instances."
   vpc_id      = aws_vpc.main.id
 
   ingress {
@@ -613,8 +613,8 @@ resource "aws_s3files_access_point" "lambda" {
   file_system_id = aws_s3files_file_system.data.id
 
   posix_user {
-    gid = 1000
-    uid = 1000
+    gid = 0
+    uid = 0
   }
 
   root_directory {
@@ -956,12 +956,13 @@ resource "aws_lambda_event_source_mapping" "sync_worker" {
   event_source_arn = aws_sqs_queue.sync.arn
   function_name    = aws_lambda_function.sync_worker.arn
   batch_size       = 5
-  enabled          = true
+  enabled          = false
 }
 
 resource "aws_scheduler_schedule" "sync_dispatcher" {
   name                = "${local.name}-sync-dispatcher"
   schedule_expression = var.sync_dispatcher_rate
+  state               = "DISABLED"
 
   flexible_time_window {
     mode = "OFF"
@@ -970,6 +971,11 @@ resource "aws_scheduler_schedule" "sync_dispatcher" {
   target {
     arn      = aws_lambda_function.sync_dispatcher.arn
     role_arn = aws_iam_role.sync_scheduler.arn
+
+    retry_policy {
+      maximum_event_age_in_seconds = 86400
+      maximum_retry_attempts       = 0
+    }
   }
 }
 

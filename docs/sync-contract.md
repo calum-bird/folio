@@ -6,7 +6,7 @@ that the WebDAV server exposes. The DAV server scopes each request to the Clerk
 the Lambda mount:
 
 ```text
-/mnt/folio/<sanitized_clerk_sub>/<provider>/<connection_id>/
+/mnt/folio/<sanitized_clerk_sub>/<provider>/
 ```
 
 The sanitizer must match `dav-server/src/auth.rs`: ASCII letters, numbers,
@@ -53,7 +53,7 @@ incremental APIs.
 The worker writes a full replacement tree to:
 
 ```text
-/mnt/folio/<user>/<provider>/<connection_id>.next-<pid>-<timestamp>
+/mnt/folio/<user>/<provider>.next-<pid>-<timestamp>
 ```
 
 After all files are written, it renames the existing tree aside, renames the

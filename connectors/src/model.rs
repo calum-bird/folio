@@ -42,6 +42,8 @@ pub struct ConnectionRecord {
     pub last_sync_finished_at: Option<String>,
     #[serde(default, rename = "lastSyncError")]
     pub last_sync_error: Option<String>,
+    #[serde(default, rename = "syncFailureCount")]
+    pub sync_failure_count: u32,
     #[serde(default, rename = "leaseOwner")]
     pub lease_owner: Option<String>,
     #[serde(default, rename = "leaseExpiresAt")]
