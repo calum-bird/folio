@@ -1,7 +1,7 @@
 export const CONNECTION_GSI = "gsi1";
 export const ACTIVE_SYNC_PK = "SYNC#ACTIVE";
 
-export type ConnectionProvider = "github";
+export type ConnectionProvider = "github" | "slack" | "linear";
 
 export type ConnectionStatus =
   | "active"
