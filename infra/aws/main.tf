@@ -10,8 +10,14 @@ locals {
   name                      = lower(replace(var.name, "_", "-"))
   domain_enabled            = var.domain_name != ""
   ecr_image                 = "${aws_ecr_repository.app.repository_url}:latest"
+  sync_dispatcher_ecr_image = "${aws_ecr_repository.sync_dispatcher.repository_url}:latest"
+  sync_worker_ecr_image     = "${aws_ecr_repository.sync_worker.repository_url}:latest"
   container_image           = var.container_image != "" ? var.container_image : local.ecr_image
+  sync_dispatcher_image     = var.sync_dispatcher_image != "" ? var.sync_dispatcher_image : local.sync_dispatcher_ecr_image
+  sync_worker_image         = var.sync_worker_image != "" ? var.sync_worker_image : local.sync_worker_ecr_image
   bucket_name               = substr("${local.name}-${data.aws_caller_identity.current.account_id}-${var.aws_region}", 0, 63)
+  connections_table_name    = "${local.name}-connections"
+  connection_secret_prefix  = "${local.name}/connections"
   managed_certificate_arn   = try(aws_acm_certificate_validation.app[0].certificate_arn, "")
   effective_certificate_arn = var.certificate_arn != "" ? var.certificate_arn : local.managed_certificate_arn
   https_enabled             = local.effective_certificate_arn != ""
@@ -48,6 +54,40 @@ resource "aws_subnet" "public" {
   }
 }
 
+resource "aws_subnet" "private" {
+  count = length(var.private_subnet_cidrs)
+
+  vpc_id                  = aws_vpc.main.id
+  cidr_block              = var.private_subnet_cidrs[count.index]
+  availability_zone       = data.aws_availability_zones.available.names[count.index]
+  map_public_ip_on_launch = false
+
+  tags = {
+    Name = "${local.name}-private-${count.index + 1}"
+  }
+}
+
+resource "aws_eip" "nat" {
+  domain = "vpc"
+
+  tags = {
+    Name = "${local.name}-nat"
+  }
+}
+
+resource "aws_nat_gateway" "main" {
+  allocation_id = aws_eip.nat.id
+  subnet_id     = aws_subnet.public[0].id
+
+  tags = {
+    Name = "${local.name}-nat"
+  }
+
+  depends_on = [
+    aws_internet_gateway.main
+  ]
+}
+
 resource "aws_route_table" "public" {
   vpc_id = aws_vpc.main.id
 
@@ -66,6 +106,26 @@ resource "aws_route_table_association" "public" {
 
   subnet_id      = aws_subnet.public[count.index].id
   route_table_id = aws_route_table.public.id
+}
+
+resource "aws_route_table" "private" {
+  vpc_id = aws_vpc.main.id
+
+  route {
+    cidr_block     = "0.0.0.0/0"
+    nat_gateway_id = aws_nat_gateway.main.id
+  }
+
+  tags = {
+    Name = "${local.name}-private"
+  }
+}
+
+resource "aws_route_table_association" "private" {
+  count = length(aws_subnet.private)
+
+  subnet_id      = aws_subnet.private[count.index].id
+  route_table_id = aws_route_table.private.id
 }
 
 resource "aws_security_group" "alb" {
@@ -128,7 +188,7 @@ resource "aws_security_group" "managed_instances" {
 
 resource "aws_security_group" "s3files" {
   name        = "${local.name}-s3files"
-  description = "S3 Files mount target access from ECS Managed Instances."
+  description = "S3 Files mount target access from FolioFS compute."
   vpc_id      = aws_vpc.main.id
 
   ingress {
@@ -137,6 +197,14 @@ resource "aws_security_group" "s3files" {
     to_port         = 2049
     protocol        = "tcp"
     security_groups = [aws_security_group.managed_instances.id]
+  }
+
+  ingress {
+    description     = "NFS from Lambda sync functions"
+    from_port       = 2049
+    to_port         = 2049
+    protocol        = "tcp"
+    security_groups = [aws_security_group.lambda.id]
   }
 
   egress {
@@ -148,6 +216,23 @@ resource "aws_security_group" "s3files" {
 
   tags = {
     Name = "${local.name}-s3files"
+  }
+}
+
+resource "aws_security_group" "lambda" {
+  name        = "${local.name}-lambda"
+  description = "Lambda sync functions."
+  vpc_id      = aws_vpc.main.id
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "${local.name}-lambda"
   }
 }
 
@@ -287,9 +372,100 @@ resource "aws_ecr_repository" "app" {
   }
 }
 
+resource "aws_ecr_repository" "sync_dispatcher" {
+  name                 = "${local.name}-sync-dispatcher"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+}
+
+resource "aws_ecr_repository" "sync_worker" {
+  name                 = "${local.name}-sync-worker"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+}
+
 resource "aws_cloudwatch_log_group" "app" {
   name              = "/ecs/${local.name}"
   retention_in_days = 14
+}
+
+resource "aws_dynamodb_table" "connections" {
+  name         = local.connections_table_name
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "pk"
+  range_key    = "sk"
+
+  attribute {
+    name = "pk"
+    type = "S"
+  }
+
+  attribute {
+    name = "sk"
+    type = "S"
+  }
+
+  attribute {
+    name = "gsi1pk"
+    type = "S"
+  }
+
+  attribute {
+    name = "gsi1sk"
+    type = "S"
+  }
+
+  global_secondary_index {
+    name            = "gsi1"
+    hash_key        = "gsi1pk"
+    range_key       = "gsi1sk"
+    projection_type = "ALL"
+  }
+
+  point_in_time_recovery {
+    enabled = true
+  }
+
+  server_side_encryption {
+    enabled = true
+  }
+
+  tags = {
+    Name = local.connections_table_name
+  }
+}
+
+resource "aws_sqs_queue" "sync_dlq" {
+  name                      = "${local.name}-sync-dlq"
+  message_retention_seconds = 1209600
+}
+
+resource "aws_sqs_queue" "sync" {
+  name                       = "${local.name}-sync"
+  visibility_timeout_seconds = 960
+  message_retention_seconds  = 1209600
+
+  redrive_policy = jsonencode({
+    deadLetterTargetArn = aws_sqs_queue.sync_dlq.arn
+    maxReceiveCount     = 3
+  })
+}
+
+resource "aws_kms_key" "connection_secrets" {
+  description             = "Encrypt FolioFS provider OAuth connection secrets."
+  deletion_window_in_days = 7
+  enable_key_rotation     = true
+}
+
+resource "aws_kms_alias" "connection_secrets" {
+  name          = "alias/${local.name}-connection-secrets"
+  target_key_id = aws_kms_key.connection_secrets.key_id
 }
 
 resource "aws_s3_bucket" "data" {
@@ -433,6 +609,23 @@ resource "aws_s3files_file_system" "data" {
   }
 }
 
+resource "aws_s3files_access_point" "lambda" {
+  file_system_id = aws_s3files_file_system.data.id
+
+  posix_user {
+    gid = 1000
+    uid = 1000
+  }
+
+  root_directory {
+    path = "/"
+  }
+
+  tags = {
+    Name = "${local.name}-lambda"
+  }
+}
+
 resource "aws_s3files_mount_target" "data" {
   count = length(aws_subnet.public)
 
@@ -558,6 +751,226 @@ resource "aws_iam_role_policy" "task_bucket" {
       }
     ]
   })
+}
+
+resource "aws_iam_role" "sync_lambda" {
+  name = "${local.name}-sync-lambda"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Principal = {
+        Service = "lambda.amazonaws.com"
+      }
+      Action = "sts:AssumeRole"
+    }]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "sync_lambda_basic" {
+  role       = aws_iam_role.sync_lambda.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
+resource "aws_iam_role_policy_attachment" "sync_lambda_vpc" {
+  role       = aws_iam_role.sync_lambda.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
+}
+
+resource "aws_iam_role_policy" "sync_lambda" {
+  name = "${local.name}-sync-lambda"
+  role = aws_iam_role.sync_lambda.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "ConnectionTableAccess"
+        Effect = "Allow"
+        Action = [
+          "dynamodb:GetItem",
+          "dynamodb:Query",
+          "dynamodb:UpdateItem"
+        ]
+        Resource = [
+          aws_dynamodb_table.connections.arn,
+          "${aws_dynamodb_table.connections.arn}/index/*"
+        ]
+      },
+      {
+        Sid    = "SyncQueueAccess"
+        Effect = "Allow"
+        Action = [
+          "sqs:DeleteMessage",
+          "sqs:GetQueueAttributes",
+          "sqs:ReceiveMessage",
+          "sqs:SendMessage"
+        ]
+        Resource = aws_sqs_queue.sync.arn
+      },
+      {
+        Sid      = "SyncDeadLetterQueueAccess"
+        Effect   = "Allow"
+        Action   = ["sqs:SendMessage"]
+        Resource = aws_sqs_queue.sync_dlq.arn
+      },
+      {
+        Sid    = "ConnectionSecretRead"
+        Effect = "Allow"
+        Action = [
+          "secretsmanager:DescribeSecret",
+          "secretsmanager:GetSecretValue"
+        ]
+        Resource = "arn:aws:secretsmanager:${var.aws_region}:${data.aws_caller_identity.current.account_id}:secret:${local.connection_secret_prefix}/*"
+      },
+      {
+        Sid      = "ConnectionSecretKmsDecrypt"
+        Effect   = "Allow"
+        Action   = ["kms:Decrypt"]
+        Resource = aws_kms_key.connection_secrets.arn
+      },
+      {
+        Sid    = "S3FilesMountAccess"
+        Effect = "Allow"
+        Action = [
+          "s3files:ClientMount",
+          "s3files:ClientWrite"
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "S3DirectRead"
+        Effect = "Allow"
+        Action = [
+          "s3:GetObject",
+          "s3:GetObjectVersion"
+        ]
+        Resource = "${aws_s3_bucket.data.arn}/*"
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role" "sync_scheduler" {
+  name = "${local.name}-sync-scheduler"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Principal = {
+        Service = "scheduler.amazonaws.com"
+      }
+      Action = "sts:AssumeRole"
+    }]
+  })
+}
+
+resource "aws_iam_role_policy" "sync_scheduler" {
+  name = "${local.name}-sync-scheduler"
+  role = aws_iam_role.sync_scheduler.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = "lambda:InvokeFunction"
+      Resource = aws_lambda_function.sync_dispatcher.arn
+    }]
+  })
+}
+
+resource "aws_cloudwatch_log_group" "sync_dispatcher" {
+  name              = "/aws/lambda/${local.name}-sync-dispatcher"
+  retention_in_days = 14
+}
+
+resource "aws_cloudwatch_log_group" "sync_worker" {
+  name              = "/aws/lambda/${local.name}-sync-worker"
+  retention_in_days = 14
+}
+
+resource "aws_lambda_function" "sync_dispatcher" {
+  function_name = "${local.name}-sync-dispatcher"
+  package_type  = "Image"
+  image_uri     = local.sync_dispatcher_image
+  role          = aws_iam_role.sync_lambda.arn
+  architectures = ["arm64"]
+  memory_size   = 512
+  timeout       = 60
+
+  environment {
+    variables = {
+      FOLIO_CONNECTIONS_TABLE        = aws_dynamodb_table.connections.name
+      FOLIO_SYNC_QUEUE_URL           = aws_sqs_queue.sync.url
+      FOLIO_SYNC_INTERVAL_SECONDS    = tostring(var.sync_interval_seconds)
+      FOLIO_SYNC_DISPATCH_BATCH_SIZE = "100"
+    }
+  }
+
+  depends_on = [
+    aws_cloudwatch_log_group.sync_dispatcher,
+    aws_iam_role_policy.sync_lambda,
+    aws_iam_role_policy_attachment.sync_lambda_basic
+  ]
+}
+
+resource "aws_lambda_function" "sync_worker" {
+  function_name = "${local.name}-sync-worker"
+  package_type  = "Image"
+  image_uri     = local.sync_worker_image
+  role          = aws_iam_role.sync_lambda.arn
+  architectures = ["arm64"]
+  memory_size   = 1024
+  timeout       = 900
+
+  environment {
+    variables = {
+      FOLIO_CONNECTIONS_TABLE     = aws_dynamodb_table.connections.name
+      FOLIO_DATA_ROOT             = "/mnt/folio"
+      FOLIO_SYNC_INTERVAL_SECONDS = tostring(var.sync_interval_seconds)
+    }
+  }
+
+  file_system_config {
+    arn              = aws_s3files_access_point.lambda.arn
+    local_mount_path = "/mnt/folio"
+  }
+
+  vpc_config {
+    security_group_ids = [aws_security_group.lambda.id]
+    subnet_ids         = aws_subnet.private[*].id
+  }
+
+  depends_on = [
+    aws_cloudwatch_log_group.sync_worker,
+    aws_iam_role_policy.sync_lambda,
+    aws_iam_role_policy_attachment.sync_lambda_basic,
+    aws_iam_role_policy_attachment.sync_lambda_vpc,
+    aws_s3files_mount_target.data
+  ]
+}
+
+resource "aws_lambda_event_source_mapping" "sync_worker" {
+  event_source_arn = aws_sqs_queue.sync.arn
+  function_name    = aws_lambda_function.sync_worker.arn
+  batch_size       = 5
+  enabled          = true
+}
+
+resource "aws_scheduler_schedule" "sync_dispatcher" {
+  name                = "${local.name}-sync-dispatcher"
+  schedule_expression = var.sync_dispatcher_rate
+
+  flexible_time_window {
+    mode = "OFF"
+  }
+
+  target {
+    arn      = aws_lambda_function.sync_dispatcher.arn
+    role_arn = aws_iam_role.sync_scheduler.arn
+  }
 }
 
 resource "aws_ecs_cluster" "main" {

@@ -1,0 +1,20 @@
+---
+provider: "github"
+kind: "issue"
+id: {{ entity.id }}
+repo: "{{ entity.repo }}"
+number: {{ entity.number }}
+state: "{{ entity.state }}"
+url: "{{ entity.html_url }}"
+author: "{{ entity.author | default(value="", boolean=true) }}"
+labels:
+{% for label in entity.labels -%}
+  - "{{ label.name }}"
+{% endfor %}
+createdAt: "{{ entity.created_at }}"
+updatedAt: "{{ entity.updated_at }}"
+---
+
+# {{ entity.repo }}#{{ entity.number }}: {{ entity.title }}
+
+{{ entity.body | default(value="No description.", boolean=true) }}

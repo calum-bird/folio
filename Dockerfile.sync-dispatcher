@@ -1,0 +1,18 @@
+FROM rust:1-bookworm AS builder
+
+WORKDIR /app
+
+COPY Cargo.toml Cargo.lock ./
+COPY dav-server ./dav-server
+COPY client ./client
+COPY connectors ./connectors
+COPY sync-dispatcher ./sync-dispatcher
+COPY sync-worker ./sync-worker
+
+RUN cargo build -p foliofs-sync-dispatcher --release
+
+FROM public.ecr.aws/lambda/provided:al2023
+
+COPY --from=builder /app/target/release/foliofs-sync-dispatcher /var/runtime/bootstrap
+
+CMD ["bootstrap"]

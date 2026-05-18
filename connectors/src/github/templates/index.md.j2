@@ -1,0 +1,21 @@
+---
+provider: "github"
+kind: "index"
+account: "{{ entity.account }}"
+repositoryCount: {{ entity.repositories | length }}
+syncedAt: "{{ entity.synced_at }}"
+---
+
+# GitHub
+
+Account: `{{ entity.account }}`
+
+{% if entity.repositories %}
+## Repositories
+
+{% for repo in entity.repositories -%}
+- [{{ repo.full_name }}](repos/{{ repo.slug }}.md)
+{% endfor %}
+{% else %}
+No repositories found.
+{% endif %}

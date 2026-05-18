@@ -1,0 +1,31 @@
+---
+provider: "github"
+kind: "repository"
+id: {{ entity.id }}
+fullName: "{{ entity.full_name }}"
+url: "{{ entity.html_url }}"
+private: {{ entity.private }}
+archived: {{ entity.archived }}
+fork: {{ entity.fork }}
+language: "{{ entity.language | default(value="", boolean=true) }}"
+updatedAt: "{{ entity.updated_at | default(value="", boolean=true) }}"
+pushedAt: "{{ entity.pushed_at | default(value="", boolean=true) }}"
+---
+
+# {{ entity.full_name }}
+
+{{ entity.description | default(value="No description.", boolean=true) }}
+
+- URL: {{ entity.html_url }}
+- Language: {{ entity.language | default(value="unknown", boolean=true) }}
+- Open issues: {{ entity.issues | length }}
+
+{% if entity.issues %}
+## Open Issues
+
+{% for issue in entity.issues -%}
+- [#{{ issue.number }} {{ issue.title }}]({{ issue.html_url }})
+{% endfor %}
+{% else %}
+No open issues found.
+{% endif %}

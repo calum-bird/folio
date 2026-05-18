@@ -5,6 +5,9 @@ WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
 COPY dav-server ./dav-server
 COPY client ./client
+COPY connectors ./connectors
+COPY sync-dispatcher ./sync-dispatcher
+COPY sync-worker ./sync-worker
 
 RUN cargo build -p foliofs-dav-server --release
 

@@ -23,6 +23,16 @@ output "ecr_repository_url" {
   value       = aws_ecr_repository.app.repository_url
 }
 
+output "sync_dispatcher_ecr_repository_url" {
+  description = "ECR repository URL for the sync dispatcher Lambda image."
+  value       = aws_ecr_repository.sync_dispatcher.repository_url
+}
+
+output "sync_worker_ecr_repository_url" {
+  description = "ECR repository URL for the sync worker Lambda image."
+  value       = aws_ecr_repository.sync_worker.repository_url
+}
+
 output "s3_bucket_name" {
   description = "S3 bucket backing the S3 Files file system."
   value       = aws_s3_bucket.data.bucket
@@ -41,4 +51,29 @@ output "ecs_cluster_name" {
 output "ecs_service_name" {
   description = "ECS service name."
   value       = aws_ecs_service.app.name
+}
+
+output "connections_table_name" {
+  description = "DynamoDB table used for FolioFS provider connections."
+  value       = aws_dynamodb_table.connections.name
+}
+
+output "connection_secrets_kms_key_arn" {
+  description = "KMS key used for FolioFS provider connection secrets."
+  value       = aws_kms_key.connection_secrets.arn
+}
+
+output "sync_queue_url" {
+  description = "SQS queue URL for FolioFS sync jobs."
+  value       = aws_sqs_queue.sync.url
+}
+
+output "sync_dispatcher_lambda_name" {
+  description = "Lambda function name for dispatching due sync jobs."
+  value       = aws_lambda_function.sync_dispatcher.function_name
+}
+
+output "sync_worker_lambda_name" {
+  description = "Lambda function name for processing sync jobs."
+  value       = aws_lambda_function.sync_worker.function_name
 }

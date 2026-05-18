@@ -22,6 +22,12 @@ variable "public_subnet_cidrs" {
   default     = ["10.42.0.0/24", "10.42.1.0/24"]
 }
 
+variable "private_subnet_cidrs" {
+  description = "Private subnet CIDRs for Lambda sync functions."
+  type        = list(string)
+  default     = ["10.42.10.0/24", "10.42.11.0/24"]
+}
+
 variable "allowed_cidr_blocks" {
   description = "CIDR blocks allowed to reach the public load balancer."
   type        = list(string)
@@ -98,4 +104,28 @@ variable "container_memory" {
   description = "Memory in MiB reserved by the WebDAV task."
   type        = number
   default     = 1024
+}
+
+variable "sync_dispatcher_image" {
+  description = "Container image for the sync dispatcher Lambda. Defaults to the Terraform-created dispatcher ECR repo with the :latest tag."
+  type        = string
+  default     = ""
+}
+
+variable "sync_worker_image" {
+  description = "Container image for the sync worker Lambda. Defaults to the Terraform-created worker ECR repo with the :latest tag."
+  type        = string
+  default     = ""
+}
+
+variable "sync_interval_seconds" {
+  description = "Default interval between sync attempts for a connection."
+  type        = number
+  default     = 3600
+}
+
+variable "sync_dispatcher_rate" {
+  description = "EventBridge Scheduler rate expression for dispatching due sync jobs."
+  type        = string
+  default     = "rate(1 minute)"
 }

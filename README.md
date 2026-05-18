@@ -153,6 +153,30 @@ ECR repository, ALB, ECS cluster, ECS Managed Instances capacity provider, S3
 bucket, S3 Files file system, mount targets, IAM roles, and the ECS service.
 The server still sees a plain local directory at `/data`.
 
+The web app adds a connector control plane on top of that storage:
+
+- DynamoDB stores connection metadata and user-facing sync status keyed by
+  Clerk `sub`.
+- Secrets Manager stores provider OAuth tokens, with one secret per connection.
+- The web app is responsible for OAuth connect/disconnect and browsing data.
+- EventBridge Scheduler invokes a dispatcher Lambda, which sends due sync jobs
+  to SQS.
+- An SQS-triggered worker Lambda reads provider tokens from Secrets Manager,
+  renders Markdown through the shared `connectors` crate, and writes to S3 Files
+  mounted at `/mnt/folio`.
+
+The web app needs these environment variables when connection management is
+enabled:
+
+```sh
+FOLIO_CONNECTIONS_TABLE=foliofs-connections
+FOLIO_CONNECTION_SECRET_PREFIX=foliofs/connections
+FOLIO_CONNECTION_SECRETS_KMS_KEY_ID=<kms-key-arn>
+FOLIO_SYNC_INTERVAL_SECONDS=3600
+GITHUB_OAUTH_CLIENT_ID=<github-oauth-client-id>
+GITHUB_OAUTH_CLIENT_SECRET=<github-oauth-client-secret>
+```
+
 Bootstrap the ECR repository first:
 
 ```sh
@@ -174,17 +198,31 @@ cd ../..
 docker buildx build --platform linux/arm64 -t "$ECR_REPO:latest" --push .
 ```
 
+Build and push the sync Lambda images:
+
+```sh
+DISPATCHER_REPO="$(aws ecr describe-repositories --repository-names foliofs-sync-dispatcher --query 'repositories[0].repositoryUri' --output text)"
+WORKER_REPO="$(aws ecr describe-repositories --repository-names foliofs-sync-worker --query 'repositories[0].repositoryUri' --output text)"
+
+docker buildx build --platform linux/arm64 -f Dockerfile.sync-dispatcher -t "$DISPATCHER_REPO:latest" --push .
+docker buildx build --platform linux/arm64 -f Dockerfile.sync-worker -t "$WORKER_REPO:latest" --push .
+```
+
 Apply the rest of the stack:
 
 ```sh
 cd infra/aws
-terraform apply -var "container_image=$ECR_REPO:latest"
+terraform apply \
+  -var "container_image=$ECR_REPO:latest" \
+  -var "sync_dispatcher_image=$DISPATCHER_REPO:latest" \
+  -var "sync_worker_image=$WORKER_REPO:latest"
 ```
 
 By default this runs one task on ECS Managed Instances using `t4g.medium`-class
 ARM capacity and mounts S3 Files at `/data` for `LocalFS`. Scale by raising
 `desired_count`; the service uses one host-networked task per managed instance
-to keep the deployment cheap and avoid a NAT gateway.
+for the WebDAV server. The Lambda sync worker runs in private subnets, mounts S3
+Files at `/mnt/folio`, and uses NAT egress for provider APIs like GitHub.
 
 ## License
 
