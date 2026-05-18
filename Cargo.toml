@@ -1,0 +1,41 @@
+[workspace]
+resolver = "2"
+members = ["dav-server", "client"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+rust-version = "1.75"
+
+[workspace.dependencies]
+anyhow = "1"
+thiserror = "1"
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# server side
+dav-server = "0.11"
+hyper = { version = "1", features = ["server", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+jsonwebtoken = "9"
+
+# client side
+axum = "0.7"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
+base64 = "0.22"
+bytes = "1"
+keyring = "3.6"
+rand = "0.8"
+sha2 = "0.10"
+tao = "0.35"
+tray-icon = "0.24"
+url = "2"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

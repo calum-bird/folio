@@ -1,0 +1,8 @@
+target/
+.git/
+.terraform/
+**/.terraform/
+**/*.tfstate
+**/*.tfstate.*
+**/*.tfvars
+**/*.tfvars.json
