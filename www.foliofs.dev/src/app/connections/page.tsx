@@ -2,30 +2,8 @@ import { auth } from "@clerk/nextjs/server";
 import Link from "next/link";
 
 import { Button } from "@/components/ui/button";
-import { type ConnectionProvider } from "@/lib/connections/model";
+import { CONNECTORS } from "@/lib/connections/registry";
 import { listUserConnections } from "@/lib/connections/store";
-
-const PROVIDERS: Array<{
-  provider: ConnectionProvider;
-  name: string;
-  description: string;
-}> = [
-  {
-    provider: "github",
-    name: "GitHub",
-    description: "Sync repositories and issues into markdown files in your folio.",
-  },
-  {
-    provider: "slack",
-    name: "Slack",
-    description: "Sync channels and recent messages into markdown files in your folio.",
-  },
-  {
-    provider: "linear",
-    name: "Linear",
-    description: "Sync teams and issues into markdown files in your folio.",
-  },
-];
 
 export default async function ConnectionsPage() {
   const { userId } = await auth();
@@ -49,12 +27,14 @@ export default async function ConnectionsPage() {
         </header>
 
         <section className="grid gap-4 md:grid-cols-3">
-          {PROVIDERS.map((provider) => (
-            <div className="border border-zinc-800 bg-zinc-900/40 p-5" key={provider.provider}>
-              <h2 className="text-lg font-medium">{provider.name}</h2>
-              <p className="mt-2 text-sm leading-6 text-zinc-400">{provider.description}</p>
+          {CONNECTORS.map((connector) => (
+            <div className="border border-zinc-800 bg-zinc-900/40 p-5" key={connector.provider}>
+              <h2 className="text-lg font-medium">{connector.displayName}</h2>
+              <p className="mt-2 text-sm leading-6 text-zinc-400">{connector.description}</p>
               <Button asChild className="mt-4">
-                <Link href={`/api/connections/${provider.provider}/start`}>Connect {provider.name}</Link>
+                <Link href={`/api/connections/${connector.provider}/start`}>
+                  Connect {connector.displayName}
+                </Link>
               </Button>
             </div>
           ))}

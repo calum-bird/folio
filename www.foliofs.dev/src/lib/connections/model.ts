@@ -25,7 +25,7 @@ export type ConnectionRecord = {
   displayName: string;
   scopes: string[];
   status: ConnectionStatus;
-  secretArn: string;
+  encryptedToken: string;
   outputPrefix: string;
   syncCursor?: string;
   nextSyncAt: string;
@@ -83,14 +83,6 @@ export function outputPrefixForConnection(
   return `${userDirFromSubject(userId)}/${provider}`;
 }
 
-export function secretNameForConnection(
-  userId: string,
-  provider: ConnectionProvider,
-  connectionId: string,
-) {
-  return `${connectionSecretPrefix()}/${userDirFromSubject(userId)}/${provider}/${connectionId}`;
-}
-
 export function connectionTableName() {
   const tableName = process.env.FOLIO_CONNECTIONS_TABLE;
   if (!tableName) {
@@ -98,10 +90,6 @@ export function connectionTableName() {
   }
 
   return tableName;
-}
-
-export function connectionSecretPrefix() {
-  return process.env.FOLIO_CONNECTION_SECRET_PREFIX ?? "foliofs/connections";
 }
 
 export function syncIntervalSeconds() {

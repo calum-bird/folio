@@ -1,7 +1,8 @@
 import "server-only";
 
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { SecretsManagerClient } from "@aws-sdk/client-secrets-manager";
+import { KMSClient } from "@aws-sdk/client-kms";
+import { SQSClient } from "@aws-sdk/client-sqs";
 import { fromIni } from "@aws-sdk/credential-providers";
 import { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 
@@ -11,7 +12,8 @@ const clientConfig = {
 };
 
 const dynamodb = new DynamoDBClient(clientConfig);
-const secrets = new SecretsManagerClient(clientConfig);
+const kms = new KMSClient(clientConfig);
+const sqs = new SQSClient(clientConfig);
 
 export const documentClient = DynamoDBDocumentClient.from(dynamodb, {
   marshallOptions: {
@@ -19,7 +21,8 @@ export const documentClient = DynamoDBDocumentClient.from(dynamodb, {
   },
 });
 
-export const secretsClient = secrets;
+export const kmsClient = kms;
+export const sqsClient = sqs;
 
 function awsCredentials() {
   const profile = process.env.AWS_PROFILE;
