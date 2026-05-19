@@ -1,29 +1,35 @@
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use aws_config::BehaviorVersion;
 use aws_lambda_events::event::sqs::SqsEvent;
 use aws_sdk_dynamodb::types::AttributeValue;
 use aws_sdk_dynamodb::Client as DynamoDb;
-use aws_sdk_secretsmanager::Client as SecretsManager;
 use foliofs_connectors::connector::{connector_for_secret, Connector};
 use foliofs_connectors::fs::replace_rendered_tree;
 use foliofs_connectors::model::{
-    connection_pk, connection_sk, sync_gsi_sk, ConnectionRecord, ProviderTokenSecret, SyncJob,
-    ACTIVE_SYNC_PK,
+    connection_pk, connection_sk, sync_gsi_sk, ConnectionRecord, SyncJob, ACTIVE_SYNC_PK,
 };
 use lambda_runtime::{run, service_fn, Error, LambdaEvent};
+use tokio::sync::Mutex;
 use tracing_subscriber::EnvFilter;
 
+mod token_cache;
+mod tokens;
+
+use tokens::TokenLoader;
+
 const MAX_SYNC_FAILURES: u32 = 3;
+const DEFAULT_TOKEN_CACHE_TTL_SECS: u64 = 300;
 
 #[derive(Clone)]
 struct State {
     dynamodb: DynamoDb,
-    secrets: SecretsManager,
     table_name: String,
     data_root: PathBuf,
     interval_seconds: i64,
+    tokens: Arc<Mutex<TokenLoader>>,
 }
 
 #[tokio::main]
@@ -32,10 +38,13 @@ async fn main() -> Result<(), Error> {
     let config = aws_config::load_defaults(BehaviorVersion::latest()).await;
     let state = State {
         dynamodb: DynamoDb::new(&config),
-        secrets: SecretsManager::new(&config),
         table_name: env("FOLIO_CONNECTIONS_TABLE")?,
         data_root: PathBuf::from(env_default("FOLIO_DATA_ROOT", "/mnt/folio")),
         interval_seconds: env_i64("FOLIO_SYNC_INTERVAL_SECONDS", 3600),
+        tokens: Arc::new(Mutex::new(TokenLoader::new(
+            aws_sdk_kms::Client::new(&config),
+            env_u64("FOLIO_TOKEN_CACHE_TTL_SECONDS", DEFAULT_TOKEN_CACHE_TTL_SECS),
+        ))),
     };
 
     run(service_fn(move |event| handler(event, state.clone()))).await
@@ -81,7 +90,7 @@ async fn sync_job(state: &State, job: SyncJob) -> Result<()> {
 }
 
 async fn sync_leased_connection(state: &State, connection: &ConnectionRecord) -> Result<Option<String>> {
-    let secret = load_secret(state, &connection.secret_arn).await?;
+    let secret = state.tokens.lock().await.load(connection).await?;
     let connector = connector_for_secret(&secret)?;
     let plan = connector.plan(connection).await?;
     tracing::info!(
@@ -143,18 +152,6 @@ async fn acquire_lease(
 
     let attributes = response.attributes().context("lease update returned no item")?;
     serde_dynamo::from_item(attributes.clone()).context("decode leased connection")
-}
-
-async fn load_secret(state: &State, secret_arn: &str) -> Result<ProviderTokenSecret> {
-    let response = state
-        .secrets
-        .get_secret_value()
-        .secret_id(secret_arn)
-        .send()
-        .await
-        .context("get connection secret")?;
-    let secret = response.secret_string().context("connection secret is empty")?;
-    serde_json::from_str(secret).context("decode connection secret")
 }
 
 async fn mark_success(
@@ -253,6 +250,13 @@ fn env_default(name: &str, default: &str) -> String {
 }
 
 fn env_i64(name: &str, default: i64) -> i64 {
+    std::env::var(name)
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(default)
+}
+
+fn env_u64(name: &str, default: u64) -> u64 {
     std::env::var(name)
         .ok()
         .and_then(|value| value.parse().ok())

@@ -58,7 +58,7 @@ fn example_connection(login: &str) -> ConnectionRecord {
         display_name: login.to_string(),
         scopes: vec!["repo".to_string(), "read:user".to_string()],
         status: "active".to_string(),
-        secret_arn: "local".to_string(),
+        encrypted_token: String::new(),
         output_prefix: format!("{user_id}/github"),
         sync_cursor: None,
         next_sync_at: now.clone(),

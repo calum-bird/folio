@@ -14,9 +14,10 @@ hyphen, and underscore are preserved; every other character becomes `_`.
 
 ## Connection State
 
-Connection metadata lives in DynamoDB. Refresh/access tokens live in Secrets
-Manager and are referenced by ARN from the connection record. The worker must
-obtain a DynamoDB lease before reading provider tokens or writing files.
+Connection metadata lives in DynamoDB. Refresh/access tokens are stored on the
+connection record as a KMS-encrypted `encryptedToken` blob (encryption context
+includes the connection `pk` and `sk`). The worker must obtain a DynamoDB
+lease before decrypting provider tokens or writing files.
 
 EventBridge Scheduler invokes the sync dispatcher on a fixed cadence. The
 dispatcher queries DynamoDB for due connections and sends one SQS job per

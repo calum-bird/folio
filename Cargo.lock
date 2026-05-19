@@ -270,10 +270,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "aws-sdk-secretsmanager"
-version = "1.104.0"
+name = "aws-sdk-kms"
+version = "1.106.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "811bcb3da8bf26e571da7a248c0a93152bba9642aa4c8c907c58d949fa5f1d5c"
+checksum = "2336350f96efcf9c2552b7fdb4dd07a0c1fef11f22b28fb020a9e33e7925cf9d"
 dependencies = [
  "aws-credential-types",
  "aws-runtime",
@@ -1406,8 +1406,9 @@ dependencies = [
  "anyhow",
  "aws-config",
  "aws-sdk-dynamodb",
- "aws-sdk-secretsmanager",
+ "aws-sdk-kms",
  "aws_lambda_events",
+ "base64 0.22.1",
  "chrono",
  "foliofs-connectors",
  "lambda_runtime",

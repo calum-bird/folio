@@ -28,8 +28,8 @@ pub struct ConnectionRecord {
     pub display_name: String,
     pub scopes: Vec<String>,
     pub status: String,
-    #[serde(rename = "secretArn")]
-    pub secret_arn: String,
+    #[serde(rename = "encryptedToken")]
+    pub encrypted_token: String,
     #[serde(rename = "outputPrefix")]
     pub output_prefix: String,
     #[serde(default, rename = "syncCursor")]

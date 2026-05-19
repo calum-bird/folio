@@ -17,7 +17,6 @@ locals {
   sync_worker_image         = var.sync_worker_image != "" ? var.sync_worker_image : local.sync_worker_ecr_image
   bucket_name               = substr("${local.name}-${data.aws_caller_identity.current.account_id}-${var.aws_region}", 0, 63)
   connections_table_name    = "${local.name}-connections"
-  connection_secret_prefix  = "${local.name}/connections"
   managed_certificate_arn   = try(aws_acm_certificate_validation.app[0].certificate_arn, "")
   effective_certificate_arn = var.certificate_arn != "" ? var.certificate_arn : local.managed_certificate_arn
   https_enabled             = local.effective_certificate_arn != ""
@@ -816,18 +815,9 @@ resource "aws_iam_role_policy" "sync_lambda" {
         Resource = aws_sqs_queue.sync_dlq.arn
       },
       {
-        Sid    = "ConnectionSecretRead"
+        Sid    = "ConnectionTokenKmsDecrypt"
         Effect = "Allow"
-        Action = [
-          "secretsmanager:DescribeSecret",
-          "secretsmanager:GetSecretValue"
-        ]
-        Resource = "arn:aws:secretsmanager:${var.aws_region}:${data.aws_caller_identity.current.account_id}:secret:${local.connection_secret_prefix}/*"
-      },
-      {
-        Sid      = "ConnectionSecretKmsDecrypt"
-        Effect   = "Allow"
-        Action   = ["kms:Decrypt"]
+        Action = ["kms:Decrypt"]
         Resource = aws_kms_key.connection_secrets.arn
       },
       {
@@ -927,9 +917,10 @@ resource "aws_lambda_function" "sync_worker" {
 
   environment {
     variables = {
-      FOLIO_CONNECTIONS_TABLE     = aws_dynamodb_table.connections.name
-      FOLIO_DATA_ROOT             = "/mnt/folio"
-      FOLIO_SYNC_INTERVAL_SECONDS = tostring(var.sync_interval_seconds)
+      FOLIO_CONNECTIONS_TABLE        = aws_dynamodb_table.connections.name
+      FOLIO_DATA_ROOT                = "/mnt/folio"
+      FOLIO_SYNC_INTERVAL_SECONDS    = tostring(var.sync_interval_seconds)
+      FOLIO_TOKEN_CACHE_TTL_SECONDS  = "300"
     }
   }
 
@@ -956,7 +947,7 @@ resource "aws_lambda_event_source_mapping" "sync_worker" {
   event_source_arn = aws_sqs_queue.sync.arn
   function_name    = aws_lambda_function.sync_worker.arn
   batch_size       = 5
-  enabled          = false
+  enabled          = true
 }
 
 resource "aws_scheduler_schedule" "sync_dispatcher" {

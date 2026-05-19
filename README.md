@@ -157,20 +157,20 @@ The web app adds a connector control plane on top of that storage:
 
 - DynamoDB stores connection metadata and user-facing sync status keyed by
   Clerk `sub`.
-- Secrets Manager stores provider OAuth tokens, with one secret per connection.
+- Provider OAuth tokens are KMS-encrypted and stored on each connection record
+  as `encryptedToken` (no per-connection Secrets Manager secret).
 - The web app is responsible for OAuth connect/disconnect and browsing data.
 - EventBridge Scheduler invokes a dispatcher Lambda, which sends due sync jobs
   to SQS.
-- An SQS-triggered worker Lambda reads provider tokens from Secrets Manager,
-  renders Markdown through the shared `connectors` crate, and writes to S3 Files
-  mounted at `/mnt/folio`.
+- An SQS-triggered worker Lambda decrypts provider tokens (with a warm in-memory
+  cache), renders Markdown through the shared `connectors` crate, and writes to
+  S3 Files mounted at `/mnt/folio`.
 
 The web app needs these environment variables when connection management is
 enabled:
 
 ```sh
 FOLIO_CONNECTIONS_TABLE=foliofs-connections
-FOLIO_CONNECTION_SECRET_PREFIX=foliofs/connections
 FOLIO_CONNECTION_SECRETS_KMS_KEY_ID=<kms-key-arn>
 FOLIO_SYNC_INTERVAL_SECONDS=3600
 GITHUB_OAUTH_CLIENT_ID=<github-oauth-client-id>
