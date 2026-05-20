@@ -249,6 +249,102 @@
   letter-spacing: 0.14em;
 }
 
+/* ── install panel ────────────────────────────────────────── */
+
+.folio-install {
+  max-width: 760px;
+  border: 1px solid var(--ink);
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--paper-deep) 72%, transparent),
+      color-mix(in srgb, var(--paper) 88%, var(--ink) 12%)
+    );
+}
+
+.folio-install__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--ink) 26%, transparent);
+  padding: 1rem 1.15rem;
+}
+
+.folio-install__title {
+  margin-top: 0.35rem;
+  font-family: var(--font-display), ui-monospace, monospace;
+  font-size: 22px;
+  letter-spacing: -0.035em;
+  color: var(--ink);
+}
+
+.folio-install__command {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.75rem;
+  align-items: center;
+  border-bottom: 1px solid color-mix(in srgb, var(--ink) 18%, transparent);
+  padding: 1rem 1.15rem;
+  overflow-x: auto;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+@media (min-width: 640px) {
+  .folio-install__command {
+    font-size: 15px;
+  }
+}
+
+.folio-install__prompt {
+  color: var(--vermillion);
+}
+
+.folio-install__steps {
+  list-style: none;
+  margin: 0;
+  padding: 0.75rem 1.15rem 1rem;
+}
+
+.folio-install__step {
+  display: grid;
+  grid-template-columns: 3rem minmax(8rem, 1fr) minmax(0, 1.25fr);
+  gap: 1rem;
+  align-items: baseline;
+  padding: 0.42rem 0;
+  font-size: 12px;
+}
+
+.folio-install__step + .folio-install__step {
+  border-top: 1px dashed color-mix(in srgb, var(--ink) 18%, transparent);
+}
+
+.folio-install__step-index {
+  color: var(--vermillion);
+  font-family: var(--font-display), ui-monospace, monospace;
+}
+
+.folio-install__step-label {
+  color: var(--ink-soft);
+}
+
+.folio-install__step-command {
+  color: var(--ink);
+  overflow-x: auto;
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .folio-install__step {
+    grid-template-columns: 2.5rem minmax(0, 1fr);
+  }
+
+  .folio-install__step-command {
+    grid-column: 2;
+  }
+}
+
 /* ── stamps ───────────────────────────────────────────────── */
 
 .folio-stamp {

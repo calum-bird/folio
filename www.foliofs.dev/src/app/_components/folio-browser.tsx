@@ -260,8 +260,8 @@ function entriesCountLabel(count: number, isRoot: boolean) {
 }
 
 function browseHref(path: string) {
-  if (path === "/") return "/";
-  return `/?path=${encodeURIComponent(path)}`;
+  if (path === "/") return "/app";
+  return `/app?path=${encodeURIComponent(path)}`;
 }
 
 function fileHref(path: string) {

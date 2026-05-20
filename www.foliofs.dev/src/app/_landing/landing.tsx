@@ -1,3 +1,4 @@
+import { auth } from "@clerk/nextjs/server";
 import Link from "next/link";
 
 import {
@@ -11,17 +12,20 @@ import {
 
 import { ConnectorTree } from "./connector-tree";
 
-export function Landing() {
+export async function Landing() {
+  const { userId } = await auth();
+  const signedIn = !!userId;
+
   return (
     <PageShell>
       <SiteHeader />
-      <Hero />
+      <Hero signedIn={signedIn} />
       <SiteFooter />
     </PageShell>
   );
 }
 
-function Hero() {
+function Hero({ signedIn }: { signedIn: boolean }) {
   return (
     <section className="flex flex-1 flex-col pt-10 pb-40 sm:pt-14 sm:pb-56">
       <Marginalia>/mnt/foliofs.dev/README.md</Marginalia>
@@ -48,31 +52,14 @@ function Hero() {
           all your cloud data.
         </p>
         <div className="col-span-12 flex flex-wrap items-center gap-5 sm:col-span-5 sm:justify-end">
-          <Link href="/sign-up" className="folio-button">
-            mount your cloud data
+          <Link href={signedIn ? "/app" : "/sign-up"} className="folio-button">
+            {signedIn ? "dashboard" : "mount your cloud data"}
             <Arrow className="h-3 w-3" />
           </Link>
         </div>
       </div>
 
-      <div
-        className="folio-fade-up mt-12 grid gap-3 border p-4 sm:max-w-[680px]"
-        style={{
-          animationDelay: "180ms",
-          borderColor: "var(--ink)",
-          background: "color-mix(in srgb, var(--paper) 88%, var(--ink) 12%)",
-        }}
-      >
-        <p
-          className="folio-marginalia"
-          style={{ letterSpacing: "0.06em", textTransform: "none" }}
-        >
-          Apple Silicon · macOS
-        </p>
-        <code className="block overflow-x-auto whitespace-nowrap text-[13px] sm:text-[15px]">
-          curl -fsSL https://foliofs.dev/install.sh | sh
-        </code>
-      </div>
+      <InstallPanel />
 
       <div
         className="folio-fade-up mt-20 sm:mt-28"
@@ -84,5 +71,66 @@ function Hero() {
         <ConnectorTree />
       </div>
     </section>
+  );
+}
+
+function InstallPanel() {
+  return (
+    <section
+      className="folio-install folio-fade-up mt-12"
+      style={{ animationDelay: "180ms" }}
+      aria-labelledby="install-title"
+    >
+      <div className="folio-install__header">
+        <div>
+          <p className="folio-marginalia">Apple Silicon · macOS</p>
+          <h2 id="install-title" className="folio-install__title">
+            install FolioFS
+          </h2>
+        </div>
+        <span className="folio-tag folio-tag--accent">read-only</span>
+      </div>
+
+      <div className="folio-install__command" aria-label="Install command">
+        <span className="folio-install__prompt">$</span>
+        <code>curl -fsSL https://foliofs.dev/install.sh | sh</code>
+      </div>
+
+      <ol className="folio-install__steps">
+        <InstallStep
+          index="01"
+          label="log in once"
+          command="folio login"
+        />
+        <InstallStep
+          index="02"
+          label="start the menu-bar app"
+          command="folio start"
+        />
+        <InstallStep
+          index="03"
+          label="open the mounted drive"
+          command="open /Volumes/foliofs.dev"
+        />
+      </ol>
+    </section>
+  );
+}
+
+function InstallStep({
+  index,
+  label,
+  command,
+}: {
+  index: string;
+  label: string;
+  command: string;
+}) {
+  return (
+    <li className="folio-install__step">
+      <span className="folio-install__step-index">{index}</span>
+      <span className="folio-install__step-label">{label}</span>
+      <code className="folio-install__step-command">{command}</code>
+    </li>
   );
 }

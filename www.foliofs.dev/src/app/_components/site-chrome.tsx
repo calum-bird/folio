@@ -18,7 +18,7 @@ export function PageShell({
   maxWidth = "1180px",
 }: PageShellProps) {
   return (
-    <div className="folio-page relative isolate flex min-h-full flex-1 flex-col overflow-hidden">
+    <div className="folio-page relative isolate flex min-h-full flex-1 flex-col overflow-x-hidden">
       <div
         className={`folio-page__container mx-auto flex w-full flex-1 flex-col px-6 sm:px-10 ${
           align === "center" ? "justify-center" : ""
@@ -49,10 +49,10 @@ export async function SiteHeader() {
         </Link>
         {signedIn ? (
           <>
-            <Link href="/" className="folio-link">
-              files
+            <Link href="/app" className="folio-link">
+              dashboard
             </Link>
-            <Link href="/connections" className="folio-link">
+            <Link href="/app/connections" className="folio-link">
               connections
             </Link>
             <UserButton
