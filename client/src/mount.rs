@@ -27,6 +27,9 @@ pub struct LocalCreds<'a> {
 /// Mount `url` via the OS WebDAV client. Returns the actual `/Volumes/...`
 /// path that was created.
 pub async fn mount(url: &str, creds: LocalCreds<'_>) -> Result<PathBuf> {
+    if let Some(volume_name) = volume_name_from_url(url) {
+        cleanup_volume_name(&volume_name).await;
+    }
     let before = volumes_snapshot().await?;
     run_applescript_mount(url, &creds).await?;
     let new_path = find_new_volume(before, Duration::from_secs(10)).await?;
@@ -49,6 +52,59 @@ pub async fn unmount(mount_path: &Path) -> Result<()> {
         mount_path.display(),
         String::from_utf8_lossy(&output.stderr).trim()
     ))
+}
+
+async fn cleanup_volume_name(volume_name: &str) {
+    let Ok(entries) = matching_volume_paths(volume_name).await else {
+        return;
+    };
+    for path in entries {
+        if is_mounted(&path).await {
+            if let Err(err) = unmount(&path).await {
+                tracing::debug!(path = %path.display(), error = %err, "pre-mount cleanup unmount skipped");
+            }
+            continue;
+        }
+        if let Err(err) = tokio::fs::remove_dir(&path).await {
+            tracing::debug!(path = %path.display(), error = %err, "pre-mount cleanup stale dir removal skipped");
+        }
+    }
+}
+
+async fn matching_volume_paths(volume_name: &str) -> Result<Vec<PathBuf>> {
+    let mut matches = Vec::new();
+    let mut dir = tokio::fs::read_dir("/Volumes")
+        .await
+        .context("read /Volumes")?;
+    while let Some(entry) = dir.next_entry().await.context("/Volumes entry")? {
+        let path = entry.path();
+        let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        if name == volume_name || name.starts_with(&format!("{volume_name}-")) {
+            matches.push(path);
+        }
+    }
+    Ok(matches)
+}
+
+async fn is_mounted(path: &Path) -> bool {
+    let output = Command::new("mount").stdin(Stdio::null()).output().await;
+    let Ok(output) = output else {
+        return false;
+    };
+    let needle = format!(" on {} ", path.display());
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .any(|line| line.contains(&needle))
+}
+
+fn volume_name_from_url(url: &str) -> Option<String> {
+    let parsed = url::Url::parse(url).ok()?;
+    parsed
+        .path_segments()?
+        .rfind(|segment| !segment.is_empty())
+        .map(ToOwned::to_owned)
 }
 
 async fn run_applescript_mount(url: &str, creds: &LocalCreds<'_>) -> Result<()> {

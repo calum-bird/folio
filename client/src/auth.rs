@@ -11,7 +11,7 @@ use anyhow::{bail, Context, Result};
 use base64::Engine;
 use rand::distributions::Alphanumeric;
 use rand::Rng;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
@@ -23,9 +23,7 @@ const AUTHORIZE_URL: &str = "https://settled-hamster-79.clerk.accounts.dev/oauth
 const TOKEN_URL: &str = "https://settled-hamster-79.clerk.accounts.dev/oauth/token";
 const CLIENT_ID: &str = "rjHHgXHHq5Qhkqld";
 const CALLBACK_PATH: &str = "/callback";
-const ACCESS_TOKEN_KEY: &str = "access_token";
-const ACCESS_TOKEN_EXPIRES_AT_KEY: &str = "access_token_expires_at";
-const REFRESH_TOKEN_KEY: &str = "refresh_token";
+const TOKEN_BUNDLE_KEY: &str = "tokens";
 
 /// Minimum sleep between refresh attempts. Used both as a floor on the proactive
 /// timer and as the backoff after a failed refresh.
@@ -76,6 +74,13 @@ struct TokenResponse {
     refresh_token: Option<String>,
 }
 
+#[derive(Debug, Deserialize, Serialize)]
+struct StoredTokens {
+    access_token: String,
+    access_token_expires_at: u64,
+    refresh_token: String,
+}
+
 fn default_expires_in() -> u64 {
     3600
 }
@@ -123,9 +128,7 @@ impl AuthManager {
         force: bool,
     ) -> Result<Self> {
         if force {
-            delete_keyring(keyring_service, ACCESS_TOKEN_KEY)?;
-            delete_keyring(keyring_service, ACCESS_TOKEN_EXPIRES_AT_KEY)?;
-            delete_keyring(keyring_service, REFRESH_TOKEN_KEY)?;
+            delete_keyring(keyring_service, TOKEN_BUNDLE_KEY)?;
         }
         let mode = if force {
             StartupMode::BrowserRequired
@@ -136,9 +139,7 @@ impl AuthManager {
     }
 
     pub fn logout_keyring(keyring_service: &str) -> Result<()> {
-        delete_keyring(keyring_service, ACCESS_TOKEN_KEY)?;
-        delete_keyring(keyring_service, ACCESS_TOKEN_EXPIRES_AT_KEY)?;
-        delete_keyring(keyring_service, REFRESH_TOKEN_KEY)?;
+        delete_keyring(keyring_service, TOKEN_BUNDLE_KEY)?;
         Ok(())
     }
 
@@ -204,9 +205,12 @@ async fn build_clerk_manager(
     http: reqwest::Client,
     mode: StartupMode,
 ) -> Result<AuthManager> {
-    let refresh_token = read_keyring(keyring_service, REFRESH_TOKEN_KEY).ok();
+    let stored_tokens = read_token_bundle(keyring_service).ok();
+    let refresh_token = stored_tokens
+        .as_ref()
+        .map(|tokens| tokens.refresh_token.clone());
     if refresh_token.is_some() {
-        tracing::debug!(service = %keyring_service, "loaded refresh token from keyring");
+        tracing::debug!(service = %keyring_service, "loaded token bundle from keyring");
     }
 
     let auth = ClerkAuth {
@@ -215,7 +219,7 @@ async fn build_clerk_manager(
         http,
         refresh_token: RwLock::new(refresh_token),
     };
-    let token = initial_token(&auth, mode).await?;
+    let token = initial_token(&auth, mode, stored_tokens.as_ref()).await?;
     let user = user_info_from_token(&token.bearer);
     let state = AuthState {
         mode: AuthMode::Clerk(auth),
@@ -260,9 +264,13 @@ async fn next_refresh_in(state: &AuthState) -> Duration {
     remaining.mul_f32(0.8).max(MIN_REFRESH_INTERVAL)
 }
 
-async fn initial_token(auth: &ClerkAuth, mode: StartupMode) -> Result<TokenState> {
+async fn initial_token(
+    auth: &ClerkAuth,
+    mode: StartupMode,
+    stored_tokens: Option<&StoredTokens>,
+) -> Result<TokenState> {
     if !matches!(mode, StartupMode::BrowserRequired) {
-        if let Some(token) = load_valid_access_token(&auth.keyring_service)? {
+        if let Some(token) = load_valid_access_token(stored_tokens) {
             tracing::debug!(service = %auth.keyring_service, "using valid access token from keyring");
             return Ok(token);
         }
@@ -355,57 +363,60 @@ async fn store_token_response(
     resp: TokenResponse,
     require_refresh_token: bool,
 ) -> Result<TokenState> {
-    if require_refresh_token && resp.refresh_token.is_none() {
-        bail!(
-            "Clerk did not return a refresh token; ensure the native OAuth app allows offline_access"
-        );
-    }
+    let access_token = resp.access_token;
+    let refresh_token = match resp.refresh_token {
+        Some(refresh_token) => Some(refresh_token),
+        None if require_refresh_token => {
+            bail!(
+                "Clerk did not return a refresh token; ensure the native OAuth app allows offline_access"
+            );
+        }
+        None => auth.refresh_token.read().await.clone(),
+    };
+    let Some(refresh_token) = refresh_token else {
+        bail!("refresh response did not include a refresh token and no existing refresh token is cached");
+    };
 
-    let expires_at_epoch = token_expiry_epoch(&resp.access_token)
+    let expires_at_epoch = token_expiry_epoch(&access_token)
         .unwrap_or_else(|| current_epoch_secs().saturating_add(resp.expires_in));
     let expires_at = instant_from_epoch(expires_at_epoch);
-    write_keyring(&auth.keyring_service, ACCESS_TOKEN_KEY, &resp.access_token)?;
-    write_keyring(
+    write_token_bundle(
         &auth.keyring_service,
-        ACCESS_TOKEN_EXPIRES_AT_KEY,
-        &expires_at_epoch.to_string(),
+        &StoredTokens {
+            access_token: access_token.clone(),
+            access_token_expires_at: expires_at_epoch,
+            refresh_token: refresh_token.clone(),
+        },
     )?;
-    tracing::debug!(service = %auth.keyring_service, "stored access token in keyring");
-
-    if let Some(refresh_token) = resp.refresh_token {
-        write_keyring(&auth.keyring_service, REFRESH_TOKEN_KEY, &refresh_token)?;
-        *auth.refresh_token.write().await = Some(refresh_token);
-        tracing::debug!(service = %auth.keyring_service, "stored refresh token in keyring");
-    }
+    *auth.refresh_token.write().await = Some(refresh_token);
+    tracing::debug!(service = %auth.keyring_service, "stored token bundle in keyring");
 
     Ok(TokenState {
-        bearer: resp.access_token,
+        bearer: access_token,
         expires_at,
     })
 }
 
-fn load_valid_access_token(service: &str) -> Result<Option<TokenState>> {
-    let Ok(access_token) = read_keyring(service, ACCESS_TOKEN_KEY) else {
-        return Ok(None);
-    };
-    let expires_at = load_access_token_expiry(service, &access_token)?;
+fn load_valid_access_token(stored_tokens: Option<&StoredTokens>) -> Option<TokenState> {
+    let stored_tokens = stored_tokens?;
+    let expires_at = instant_from_epoch(stored_tokens.access_token_expires_at);
     if expires_at <= Instant::now() + MIN_REFRESH_INTERVAL {
-        return Ok(None);
+        return None;
     }
-    Ok(Some(TokenState {
-        bearer: access_token,
+    Some(TokenState {
+        bearer: stored_tokens.access_token.clone(),
         expires_at,
-    }))
+    })
 }
 
-fn load_access_token_expiry(service: &str, access_token: &str) -> Result<Instant> {
-    if let Ok(value) = read_keyring(service, ACCESS_TOKEN_EXPIRES_AT_KEY) {
-        if let Ok(epoch) = value.parse::<u64>() {
-            return Ok(instant_from_epoch(epoch));
-        }
-        tracing::debug!(service, "stored access token expiry was not a unix timestamp");
-    }
-    token_expiry(access_token).context("cached access token has no readable expiry")
+fn read_token_bundle(service: &str) -> Result<StoredTokens> {
+    let raw = read_keyring(service, TOKEN_BUNDLE_KEY)?;
+    serde_json::from_str(&raw).context("decode token bundle")
+}
+
+fn write_token_bundle(service: &str, tokens: &StoredTokens) -> Result<()> {
+    let raw = serde_json::to_string(tokens).context("encode token bundle")?;
+    write_keyring(service, TOKEN_BUNDLE_KEY, &raw)
 }
 
 async fn wait_for_callback(listener: TcpListener, expected_state: &str) -> Result<String> {
@@ -500,10 +511,6 @@ impl PkcePair {
             challenge,
         }
     }
-}
-
-fn token_expiry(access_token: &str) -> Option<Instant> {
-    token_expiry_epoch(access_token).map(instant_from_epoch)
 }
 
 fn token_expiry_epoch(access_token: &str) -> Option<u64> {

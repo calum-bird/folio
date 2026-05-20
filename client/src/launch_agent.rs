@@ -137,17 +137,29 @@ fn print_pid(output: &str) {
 }
 
 fn unmount_known_volume() {
-    let path = "/Volumes/foliofs.dev";
-    if !PathBuf::from(path).exists() {
+    let Ok(mounts) = command_output("mount", &[]) else {
         return;
+    };
+    for path in folio_mount_paths(&mounts) {
+        let _ = Command::new("diskutil")
+            .arg("unmount")
+            .arg(path)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
     }
-    let _ = Command::new("diskutil")
-        .arg("unmount")
-        .arg(path)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status();
+}
+
+fn folio_mount_paths(mounts: &str) -> Vec<&str> {
+    mounts
+        .lines()
+        .filter_map(|line| line.split_once(" on ").map(|(_, rest)| rest))
+        .filter_map(|rest| rest.split_once(" (").map(|(path, _)| path))
+        .filter(|path| {
+            *path == "/Volumes/foliofs.dev" || path.starts_with("/Volumes/foliofs.dev-")
+        })
+        .collect()
 }
 
 fn launchctl(args: &[&str]) -> Result<()> {
