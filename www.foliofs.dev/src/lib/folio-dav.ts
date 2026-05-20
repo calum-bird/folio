@@ -3,7 +3,12 @@ import "server-only";
 import { auth } from "@clerk/nextjs/server";
 import { createClient, type FileStat } from "webdav";
 
-const DEFAULT_DAV_URL = "http://127.0.0.1:4918";
+const DEFAULT_DAV_BASE_URL = "http://127.0.0.1:4918";
+
+// Must match the dav-server's `--url-prefix`. The trailing path component is
+// also what macOS Finder uses as the WebDAV volume name when the FolioFS
+// client mounts the local proxy, so changing this changes the on-disk name.
+const FOLIO_DAV_PREFIX = "/foliofs.dev";
 
 export type FolioEntry = {
   name: string;
@@ -97,7 +102,11 @@ async function createFolioClient() {
 }
 
 function folioDavUrl() {
-  return process.env.FOLIO_DAV_URL ?? DEFAULT_DAV_URL;
+  const base = (process.env.FOLIO_DAV_URL ?? DEFAULT_DAV_BASE_URL).replace(/\/+$/, "");
+  if (base.endsWith(FOLIO_DAV_PREFIX)) {
+    return base;
+  }
+  return `${base}${FOLIO_DAV_PREFIX}`;
 }
 
 function toFolioEntry(stat: FileStat): FolioEntry {

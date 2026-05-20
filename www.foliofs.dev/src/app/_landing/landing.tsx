@@ -40,15 +40,12 @@ function SiteHeader() {
 function Hero() {
   return (
     <section className="flex flex-1 flex-col pt-10 pb-40 sm:pt-14 sm:pb-56">
-      <p className="folio-marginalia">¶ ~/folio.fs/README.md</p>
+      <p className="folio-marginalia">¶ /mnt/foliofs.dev/README.md</p>
 
-      <h1 className="folio-display folio-fade-up mt-6 text-[13vw] leading-[0.95] tracking-tight sm:text-[68px] lg:text-[88px]">
-        <span style={{ color: "var(--vermillion)" }}>#</span>{" "}
-        your-cloud-data<span style={{ color: "var(--vermillion)" }}>.MD</span>
-        <br />
-        <span style={{ color: "var(--vermillion)" }}>#</span> for your agents
-        <span style={{ color: "var(--vermillion)" }}>.</span>
-        <span className="folio-cursor" />
+      <h1 className="folio-display folio-fade-up mt-6 text-[14vw] leading-none tracking-tight sm:text-[64px] md:text-[88px] lg:text-[108px] xl:text-[128px]">
+        <span style={{ color: "var(--vermillion)" }}>/</span>mnt
+        <span style={{ color: "var(--vermillion)" }}>/</span>the
+        <span style={{ color: "var(--vermillion)" }}>/</span>cloud.md
       </h1>
 
       <div
@@ -59,23 +56,16 @@ function Hero() {
           className="col-span-12 max-w-[58ch] text-[15px] leading-[1.7] sm:col-span-7 sm:text-[16px]"
           style={{ color: "var(--ink-soft)" }}
         >
-          A network drive that renders the services you already use as Markdown
-          files on your machine. Read your stack with{" "}
-          <code style={{ color: "var(--vermillion)" }}>ls</code>,{" "}
+          FolioFS is a network drive that puts the cloud services you use every day onto your machine as Markdown files.
+          Your agents will love it -
+          <code style={{ color: "var(--vermillion)" }}> ls</code>,{" "}
           <code style={{ color: "var(--vermillion)" }}>cat</code>,{" "}
-          <code style={{ color: "var(--vermillion)" }}>grep</code> — for you and
-          your agents.
+          <code style={{ color: "var(--vermillion)" }}>grep</code> now work with all your cloud data.
         </p>
         <div className="col-span-12 flex flex-wrap items-center gap-5 sm:col-span-5 sm:justify-end">
           <Link href="/sign-up" className="folio-button">
-            mount your folio
+            mount your cloud data
             <Arrow className="h-3 w-3" />
-          </Link>
-          <Link
-            href={SOURCE_URL}
-            className="folio-link text-[12px] uppercase tracking-[0.2em]"
-          >
-            source
           </Link>
         </div>
       </div>
@@ -112,18 +102,10 @@ function SiteFooter() {
     >
       <div className="flex items-center gap-3">
         <Glyph className="h-3.5 w-3.5" />
-        <span>folio.fs</span>
-        <span style={{ color: "var(--ink-faint)" }}>·</span>
-        <span style={{ color: "var(--ink-faint)" }}>mit / apache-2.0</span>
+        <span>foliofs.dev</span>
       </div>
       <div className="flex items-center gap-5">
-        <Link className="folio-link" href={SOURCE_URL}>
-          github
-        </Link>
-        <Link className="folio-link" href="/sign-in">
-          sign in
-        </Link>
-        <span style={{ color: "var(--ink-faint)" }}>rust + webdav</span>
+        <span style={{ color: "var(--ink-faint)" }}>built with rust + webdav</span>
       </div>
     </footer>
   );
