@@ -33,10 +33,10 @@ function Hero({ signedIn }: { signedIn: boolean }) {
     <section className="flex flex-1 flex-col pt-10 pb-40 sm:pt-14 sm:pb-56">
       <Marginalia>/mnt/foliofs.dev/README.md</Marginalia>
 
-      <h1 className="folio-serif folio-fade-up mt-6 text-[13vw] leading-none tracking-tight sm:text-[68px] md:text-[90px] lg:text-[116px] xl:text-[144px]">
-        <span style={{ color: "var(--vermillion)" }}> /</span>mnt
-        <span style={{ color: "var(--vermillion)" }}> /</span>the
-        <span style={{ color: "var(--vermillion)" }}> /</span>cloud.md
+      <h1 className="folio-display folio-fade-up mt-6 text-[13vw] leading-none tracking-tight sm:text-[68px] md:text-[90px] lg:text-[116px] xl:text-[144px]">
+        <span style={{ color: "var(--vermillion)" }}>/</span>mnt
+        <span style={{ color: "var(--vermillion)" }}>/</span>the
+        <span style={{ color: "var(--vermillion)" }}>/</span>cloud.md
       </h1>
  
 
