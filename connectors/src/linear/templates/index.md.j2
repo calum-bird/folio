@@ -3,7 +3,7 @@ provider: "linear"
 kind: "index"
 account: "{{ entity.account }}"
 teamCount: {{ entity.teams | length }}
-issueCount: {{ entity.issues | length }}
+issueCount: {{ entity.total_issues }}
 syncedAt: "{{ entity.synced_at }}"
 ---
 
@@ -12,19 +12,17 @@ syncedAt: "{{ entity.synced_at }}"
 Workspace: `{{ entity.account }}`
 
 {% if entity.teams %}
-## Teams
+{% for team in entity.teams %}
+## {{ team.name }} (`{{ team.key }}`)
 
-{% for team in entity.teams -%}
-- {{ team.key }}: {{ team.name }}
-{% endfor %}
-{% endif %}
-
-{% if entity.issues %}
-## Issues
-
-{% for issue in entity.issues -%}
-- [{{ issue.identifier }} {{ issue.title }}](issues/{{ issue.slug }}.md) - {{ issue.state }}
+{% if team.issues %}
+{% for issue in team.issues -%}
+- [{{ issue.identifier }} {{ issue.title }}](teams/{{ team.slug }}/issues/{{ issue.slug }}.md) - {{ issue.state }}
 {% endfor %}
 {% else %}
-No issues found.
+No issues.
+{% endif %}
+{% endfor %}
+{% else %}
+No teams found.
 {% endif %}

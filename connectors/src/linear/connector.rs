@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use anyhow::{Context, Result};
 use reqwest::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderValue, USER_AGENT};
 use serde::{Deserialize, Serialize};
@@ -117,15 +119,23 @@ struct LinearUser {
 struct LinearIndex {
     account: String,
     synced_at: String,
-    teams: Vec<LinearTeam>,
+    total_issues: usize,
+    teams: Vec<LinearTeamSummary>,
+}
+
+#[derive(Debug, Serialize)]
+struct LinearTeamSummary {
+    key: String,
+    name: String,
+    slug: String,
     issues: Vec<LinearIssueSummary>,
 }
 
 #[derive(Debug, Serialize)]
 struct LinearIssueSummary {
     identifier: String,
-    title: String,
     slug: String,
+    title: String,
     state: String,
 }
 
@@ -140,7 +150,7 @@ impl LinearConnector {
     async fn fetch_data(&self) -> Result<LinearSyncData> {
         let mut data = self.graphql::<LinearSyncData>(SYNC_QUERY).await?;
         for issue in &mut data.issues.nodes {
-            issue.slug = slug(&format!("{}-{}", issue.identifier, issue.id));
+            issue.slug = slug(&issue.identifier);
             issue.assignee_name = issue.assignee.as_ref().and_then(linear_user_name);
         }
         Ok(data)
@@ -231,21 +241,51 @@ fn render_index(
     renderer: &Renderer,
     files: &mut Vec<RenderedFile>,
 ) -> Result<()> {
+    let mut team_map: HashMap<String, LinearTeamSummary> = HashMap::new();
+    let mut order: Vec<String> = Vec::new();
+
+    for team in &data.teams.nodes {
+        team_map.insert(
+            team.key.clone(),
+            LinearTeamSummary {
+                key: team.key.clone(),
+                name: team.name.clone(),
+                slug: slug(&team.key),
+                issues: Vec::new(),
+            },
+        );
+        order.push(team.key.clone());
+    }
+
+    for issue in &data.issues.nodes {
+        let key = issue.team.key.clone();
+        let entry = team_map.entry(key.clone()).or_insert_with(|| {
+            order.push(key.clone());
+            LinearTeamSummary {
+                key: key.clone(),
+                name: issue.team.name.clone(),
+                slug: slug(&key),
+                issues: Vec::new(),
+            }
+        });
+        entry.issues.push(LinearIssueSummary {
+            identifier: issue.identifier.clone(),
+            slug: issue.slug.clone(),
+            title: issue.title.clone(),
+            state: issue.state.name.clone(),
+        });
+    }
+
+    let teams = order
+        .into_iter()
+        .filter_map(|key| team_map.remove(&key))
+        .collect::<Vec<_>>();
+
     let index = LinearIndex {
         account: connection.provider_account_login.clone(),
         synced_at: now_isoish(),
-        teams: data.teams.nodes.clone(),
-        issues: data
-            .issues
-            .nodes
-            .iter()
-            .map(|issue| LinearIssueSummary {
-                identifier: issue.identifier.clone(),
-                title: issue.title.clone(),
-                slug: issue.slug.clone(),
-                state: issue.state.name.clone(),
-            })
-            .collect(),
+        total_issues: data.issues.nodes.len(),
+        teams,
     };
     files.push(renderer.render("index.md", "index.md".to_string(), &index)?);
     Ok(())
@@ -257,9 +297,10 @@ fn render_issues(
     files: &mut Vec<RenderedFile>,
 ) -> Result<()> {
     for issue in issues {
+        let team_slug = slug(&issue.team.key);
         files.push(renderer.render(
             "issue.md",
-            format!("issues/{}.md", issue.slug),
+            format!("teams/{}/issues/{}.md", team_slug, issue.slug),
             &issue,
         )?);
     }

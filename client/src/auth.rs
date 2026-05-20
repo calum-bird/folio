@@ -101,27 +101,43 @@ impl AuthManager {
         scope: &str,
         http: reqwest::Client,
     ) -> Result<Self> {
-        let auth = ClerkAuth {
-            keyring_service: keyring_service.to_string(),
-            scope: scope.to_string(),
-            http,
-            refresh_token: RwLock::new(read_keyring(keyring_service, REFRESH_TOKEN_KEY).ok()),
+        build_clerk_manager(keyring_service, scope, http, StartupMode::BrowserIfNeeded).await
+    }
+
+    /// Build a Clerk auth manager without opening a browser. This is used by
+    /// commands like `folio whoami` that should report auth state without
+    /// surprising the user with an interactive login.
+    pub async fn clerk_pkce_no_browser(
+        keyring_service: &str,
+        scope: &str,
+        http: reqwest::Client,
+    ) -> Result<Self> {
+        build_clerk_manager(keyring_service, scope, http, StartupMode::NoBrowser).await
+    }
+
+    /// Ensure the user is logged in, optionally forcing a fresh browser flow.
+    pub async fn clerk_login(
+        keyring_service: &str,
+        scope: &str,
+        http: reqwest::Client,
+        force: bool,
+    ) -> Result<Self> {
+        if force {
+            delete_keyring(keyring_service, ACCESS_TOKEN_KEY)?;
+            delete_keyring(keyring_service, REFRESH_TOKEN_KEY)?;
+        }
+        let mode = if force {
+            StartupMode::BrowserRequired
+        } else {
+            StartupMode::BrowserIfNeeded
         };
-        let token = initial_token(&auth).await?;
-        let user = fetch_user_profile(&auth, &token.bearer)
-            .await
-            .unwrap_or_else(|err| {
-                tracing::warn!(error = %err, "failed to fetch Clerk /v1/me; falling back to JWT sub");
-                user_info_from_token(&token.bearer)
-            });
-        let state = AuthState {
-            mode: AuthMode::Clerk(auth),
-            token: RwLock::new(Some(token)),
-            user: RwLock::new(user),
-        };
-        Ok(Self {
-            state: Arc::new(state),
-        })
+        build_clerk_manager(keyring_service, scope, http, mode).await
+    }
+
+    pub fn logout_keyring(keyring_service: &str) -> Result<()> {
+        delete_keyring(keyring_service, ACCESS_TOKEN_KEY)?;
+        delete_keyring(keyring_service, REFRESH_TOKEN_KEY)?;
+        Ok(())
     }
 
     /// Spawn a background task that refreshes the token at 80% TTL.
@@ -171,10 +187,49 @@ impl AuthManager {
         *self.state.token.write().await = None;
         *self.state.user.write().await = None;
         *auth.refresh_token.write().await = None;
-        delete_keyring(&auth.keyring_service, ACCESS_TOKEN_KEY)?;
-        delete_keyring(&auth.keyring_service, REFRESH_TOKEN_KEY)?;
-        Ok(())
+        Self::logout_keyring(&auth.keyring_service)
     }
+}
+
+#[derive(Clone, Copy)]
+enum StartupMode {
+    BrowserIfNeeded,
+    BrowserRequired,
+    NoBrowser,
+}
+
+async fn build_clerk_manager(
+    keyring_service: &str,
+    scope: &str,
+    http: reqwest::Client,
+    mode: StartupMode,
+) -> Result<AuthManager> {
+    let refresh_token = read_keyring(keyring_service, REFRESH_TOKEN_KEY).ok();
+    if refresh_token.is_some() {
+        tracing::debug!(service = %keyring_service, "loaded refresh token from keyring");
+    }
+
+    let auth = ClerkAuth {
+        keyring_service: keyring_service.to_string(),
+        scope: scope.to_string(),
+        http,
+        refresh_token: RwLock::new(refresh_token),
+    };
+    let token = initial_token(&auth, mode).await?;
+    let user = fetch_user_profile(&auth, &token.bearer)
+        .await
+        .unwrap_or_else(|err| {
+            tracing::warn!(error = %err, "failed to fetch Clerk /v1/me; falling back to JWT sub");
+            user_info_from_token(&token.bearer)
+        });
+    let state = AuthState {
+        mode: AuthMode::Clerk(auth),
+        token: RwLock::new(Some(token)),
+        user: RwLock::new(user),
+    };
+    Ok(AuthManager {
+        state: Arc::new(state),
+    })
 }
 
 async fn refresh_loop(state: Arc<AuthState>) {
@@ -212,16 +267,27 @@ async fn next_refresh_in(state: &AuthState) -> Duration {
     remaining.mul_f32(0.8).max(MIN_REFRESH_INTERVAL)
 }
 
-async fn initial_token(auth: &ClerkAuth) -> Result<TokenState> {
-    if let Some(token) = load_valid_access_token(&auth.keyring_service)? {
-        return Ok(token);
+async fn initial_token(auth: &ClerkAuth, mode: StartupMode) -> Result<TokenState> {
+    if !matches!(mode, StartupMode::BrowserRequired) {
+        if let Some(token) = load_valid_access_token(&auth.keyring_service)? {
+            tracing::debug!(service = %auth.keyring_service, "using valid access token from keyring");
+            return Ok(token);
+        }
+    }
+
+    if matches!(mode, StartupMode::BrowserRequired) {
+        return browser_login(auth).await;
     }
 
     if auth.refresh_token.read().await.is_some() {
         match refresh_access_token(auth).await {
             Ok(token) => return Ok(token),
-            Err(err) => tracing::warn!(error = %err, "stored refresh token failed; starting login"),
+            Err(err) => tracing::warn!(error = %err, "stored refresh token failed"),
         }
+    }
+
+    if matches!(mode, StartupMode::NoBrowser) {
+        bail!("not logged in; run `folio login`");
     }
 
     browser_login(auth).await
@@ -251,7 +317,7 @@ async fn refresh_access_token(auth: &ClerkAuth) -> Result<TokenState> {
         .await
         .context("decode refresh token response")?;
 
-    store_token_response(auth, resp).await
+    store_token_response(auth, resp, false).await
 }
 
 async fn browser_login(auth: &ClerkAuth) -> Result<TokenState> {
@@ -288,17 +354,29 @@ async fn browser_login(auth: &ClerkAuth) -> Result<TokenState> {
         .await
         .context("decode authorization code response")?;
 
-    store_token_response(auth, resp).await
+    store_token_response(auth, resp, true).await
 }
 
-async fn store_token_response(auth: &ClerkAuth, resp: TokenResponse) -> Result<TokenState> {
+async fn store_token_response(
+    auth: &ClerkAuth,
+    resp: TokenResponse,
+    require_refresh_token: bool,
+) -> Result<TokenState> {
+    if require_refresh_token && resp.refresh_token.is_none() {
+        bail!(
+            "Clerk did not return a refresh token; ensure the native OAuth app allows offline_access"
+        );
+    }
+
     let expires_at = token_expiry(&resp.access_token)
         .unwrap_or_else(|| Instant::now() + Duration::from_secs(resp.expires_in));
     write_keyring(&auth.keyring_service, ACCESS_TOKEN_KEY, &resp.access_token)?;
+    tracing::debug!(service = %auth.keyring_service, "stored access token in keyring");
 
     if let Some(refresh_token) = resp.refresh_token {
         write_keyring(&auth.keyring_service, REFRESH_TOKEN_KEY, &refresh_token)?;
         *auth.refresh_token.write().await = Some(refresh_token);
+        tracing::debug!(service = %auth.keyring_service, "stored refresh token in keyring");
     }
 
     Ok(TokenState {

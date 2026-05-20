@@ -56,6 +56,25 @@ function Hero() {
       </div>
 
       <div
+        className="folio-fade-up mt-12 grid gap-3 border p-4 sm:max-w-[680px]"
+        style={{
+          animationDelay: "180ms",
+          borderColor: "var(--ink)",
+          background: "color-mix(in srgb, var(--paper) 88%, var(--ink) 12%)",
+        }}
+      >
+        <p
+          className="folio-marginalia"
+          style={{ letterSpacing: "0.06em", textTransform: "none" }}
+        >
+          Apple Silicon · macOS
+        </p>
+        <code className="block overflow-x-auto whitespace-nowrap text-[13px] sm:text-[15px]">
+          curl -fsSL https://foliofs.dev/install.sh | sh
+        </code>
+      </div>
+
+      <div
         className="folio-fade-up mt-20 sm:mt-28"
         style={{ animationDelay: "240ms" }}
       >

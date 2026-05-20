@@ -17,7 +17,7 @@ use tray_icon::menu::{Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem};
 use tray_icon::{Icon, TrayIcon, TrayIconBuilder};
 
 use crate::supervisor::{run_client, ClientCommand, ClientStatus};
-use crate::Args;
+use crate::ClientConfig;
 
 const OPEN_ID: &str = "foliofs.open";
 const MOUNT_ID: &str = "foliofs.mount";
@@ -31,7 +31,7 @@ enum UserEvent {
     Status(ClientStatus),
 }
 
-pub(crate) fn run(args: Args) -> Result<()> {
+pub(crate) fn run(config: ClientConfig) -> Result<()> {
     let mut event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
     hide_dock_icon(&mut event_loop);
 
@@ -45,7 +45,7 @@ pub(crate) fn run(args: Args) -> Result<()> {
     let (status_tx, status_rx) = mpsc::unbounded_channel();
 
     spawn_status_bridge(status_rx, event_loop.create_proxy());
-    spawn_client(args, command_rx, status_tx);
+    spawn_client(config, command_rx, status_tx);
 
     let mut state = TrayState {
         menu,
@@ -290,7 +290,7 @@ fn user_label(user: &crate::auth::AuthUser) -> String {
 }
 
 fn spawn_client(
-    args: Args,
+    config: ClientConfig,
     command_rx: mpsc::UnboundedReceiver<ClientCommand>,
     status_tx: mpsc::UnboundedSender<ClientStatus>,
 ) {
@@ -307,7 +307,7 @@ fn spawn_client(
         };
 
         let tx = status_tx.clone();
-        let result = runtime.block_on(run_client(args, command_rx, Some(status_tx), true));
+        let result = runtime.block_on(run_client(config, command_rx, Some(status_tx), true));
         if let Err(err) = result {
             let _ = tx.send(ClientStatus::Failed(err.to_string()));
         }

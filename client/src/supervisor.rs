@@ -7,13 +7,13 @@
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use rand::distributions::Alphanumeric;
 use rand::Rng;
 use tokio::sync::mpsc;
 
 use crate::auth::AuthUser;
-use crate::{auth, mount, proxy, Args};
+use crate::{auth, mount, proxy, ClientConfig};
 
 #[derive(Debug, Clone)]
 #[cfg_attr(not(feature = "tray"), allow(dead_code))]
@@ -41,22 +41,23 @@ pub(crate) enum ClientCommand {
 }
 
 pub(crate) async fn run_client(
-    args: Args,
+    config: ClientConfig,
     mut command_rx: mpsc::UnboundedReceiver<ClientCommand>,
     status_tx: Option<mpsc::UnboundedSender<ClientStatus>>,
     auto_mount: bool,
 ) -> Result<()> {
     send_status(&status_tx, ClientStatus::Starting);
-    let auth_required = !args.no_auth;
+    let auth_required = !config.no_auth;
+    let mount_name = validate_mount_name(&config.mount_name)?;
     let http = reqwest::Client::builder().build().context("http client")?;
-    let auth = build_auth(&args, &http).await?;
+    let auth = build_auth(&config, &http).await?;
     send_auth_status(&auth, &status_tx, auth_required).await;
     let _refresh_task = auth.spawn_refresh_loop();
 
-    let upstream: axum::http::Uri = args.upstream.parse().context("parse --upstream URL")?;
+    let upstream: axum::http::Uri = config.upstream.parse().context("parse --upstream URL")?;
     let local_creds = generate_local_creds();
-    let (listener, listen_addr) = proxy::bind(args.listen).await?;
-    tracing::info!(%listen_addr, %upstream, "proxy listening");
+    let (listener, listen_addr) = proxy::bind(config.listen).await?;
+    tracing::info!(%listen_addr, %upstream, mount_name, "proxy listening");
     send_status(&status_tx, ClientStatus::ProxyListening(listen_addr));
 
     let state = proxy::ProxyState {
@@ -66,7 +67,7 @@ pub(crate) async fn run_client(
         http,
     };
     let mut proxy_task = tokio::spawn(proxy::serve(listener, state));
-    let local_url = format!("http://{listen_addr}/");
+    let local_url = format!("http://{listen_addr}/{mount_name}/");
     let mut mount_path = initial_mount(auto_mount, &local_url, &local_creds, &status_tx).await;
 
     loop {
@@ -217,12 +218,12 @@ async fn unmount_current(
     send_status(status_tx, ClientStatus::Unmounted);
 }
 
-async fn build_auth(args: &Args, http: &reqwest::Client) -> Result<auth::AuthManager> {
-    if args.no_auth {
+async fn build_auth(config: &ClientConfig, http: &reqwest::Client) -> Result<auth::AuthManager> {
+    if config.no_auth {
         tracing::warn!("--no-auth set; running without upstream auth");
         return Ok(auth::AuthManager::noop());
     }
-    auth::AuthManager::clerk_pkce(&args.keyring_service, &args.scope, http.clone()).await
+    auth::AuthManager::clerk_pkce(&config.keyring_service, &config.scope, http.clone()).await
 }
 
 async fn send_auth_status(
@@ -246,6 +247,22 @@ fn send_status(tx: &Option<mpsc::UnboundedSender<ClientStatus>>, status: ClientS
     if let Some(tx) = tx {
         let _ = tx.send(status);
     }
+}
+
+// AppleScript's `mount volume` derives the macOS volume name from the last
+// URL path component, so we want a single clean segment (e.g. "Folio"), not
+// a multi-segment path or anything that would break URL parsing.
+fn validate_mount_name(raw: &str) -> Result<String> {
+    let trimmed = raw.trim_matches('/');
+    if trimmed.is_empty() {
+        return Err(anyhow!("--mount-name must not be empty"));
+    }
+    if trimmed.contains('/') || trimmed.contains(char::is_whitespace) {
+        return Err(anyhow!(
+            "--mount-name must be a single URL path segment without slashes or whitespace: {raw:?}"
+        ));
+    }
+    Ok(trimmed.to_string())
 }
 
 fn generate_local_creds() -> proxy::LocalBasicCreds {
