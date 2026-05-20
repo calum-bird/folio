@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { Fragment_Mono, JetBrains_Mono } from "next/font/google";
 
 import "./globals.css";
+import "./app.css";
 import { cn } from "@/lib/utils";
 
 const jetbrainsMono = JetBrains_Mono({

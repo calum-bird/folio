@@ -1,9 +1,20 @@
 import { auth } from "@clerk/nextjs/server";
 import Link from "next/link";
 
-import { Button } from "@/components/ui/button";
+import {
+  PageShell,
+  SectionHeading,
+  SiteHeader,
+} from "@/app/_components/site-chrome";
 import { CONNECTORS } from "@/lib/connections/registry";
+import { type ConnectionRecord } from "@/lib/connections/model";
 import { listUserConnections } from "@/lib/connections/store";
+
+const PROVIDER_HOSTS: Record<string, string> = {
+  github: "github.com",
+  slack: "slack.com",
+  linear: "linear.app",
+};
 
 export default async function ConnectionsPage() {
   const { userId } = await auth();
@@ -12,78 +23,21 @@ export default async function ConnectionsPage() {
   }
 
   const connections = await loadConnections(userId);
+  const liveProviders = new Set(connections.map((c) => c.provider));
 
   return (
-    <main className="flex min-h-full flex-1 bg-zinc-950 text-zinc-100">
-      <section className="mx-auto flex w-full max-w-5xl flex-col gap-6 p-6">
-        <header className="flex items-center justify-between border-b border-zinc-800 pb-4">
-          <div>
-            <p className="text-xs uppercase tracking-[0.35em] text-zinc-500">FolioFS</p>
-            <h1 className="mt-2 text-2xl font-semibold tracking-tight">Connections</h1>
-          </div>
-          <Button asChild variant="outline">
-            <Link href="/">Back to folio</Link>
-          </Button>
-        </header>
+    <PageShell>
+      <SiteHeader />
 
-        <section className="grid gap-4 md:grid-cols-3">
-          {CONNECTORS.map((connector) => (
-            <div className="border border-zinc-800 bg-zinc-900/40 p-5" key={connector.provider}>
-              <h2 className="text-lg font-medium">{connector.displayName}</h2>
-              <p className="mt-2 text-sm leading-6 text-zinc-400">{connector.description}</p>
-              <Button asChild className="mt-4">
-                <Link href={`/api/connections/${connector.provider}/start`}>
-                  Connect {connector.displayName}
-                </Link>
-              </Button>
-            </div>
-          ))}
-        </section>
-
-        <section className="border border-zinc-800 bg-zinc-900/40">
-          <div className="border-b border-zinc-800 px-4 py-3">
-            <h2 className="text-sm font-medium uppercase tracking-[0.2em] text-zinc-500">
-              Active connections
-            </h2>
-          </div>
-          {connections.length > 0 ? (
-            connections.map((connection) => (
-              <div
-                className="grid gap-3 border-b border-zinc-800 px-4 py-4 text-sm last:border-b-0 md:grid-cols-[1fr_12rem_10rem]"
-                key={connection.connectionId}
-              >
-                <div>
-                  <p className="font-medium">{connection.displayName}</p>
-                  <p className="mt-1 text-zinc-500">
-                    {connection.provider} / {connection.providerAccountLogin}
-                  </p>
-                  {connection.lastSyncError ? (
-                    <p className="mt-2 text-red-300">{connection.lastSyncError}</p>
-                  ) : null}
-                </div>
-                <div className="text-zinc-400">
-                  <p>Status: {connection.status}</p>
-                  <p>Last sync: {formatDate(connection.lastSyncFinishedAt)}</p>
-                </div>
-                <form action={`/api/connections/${connection.provider}/${connection.connectionId}/disconnect`} method="post">
-                  <Button type="submit" variant="destructive">
-                    Disconnect
-                  </Button>
-                </form>
-              </div>
-            ))
-          ) : (
-            <div className="px-4 py-10 text-center text-sm text-zinc-500">
-              No cloud software is connected yet.
-            </div>
-          )}
-        </section>
-      </section>
-    </main>
+      <main className="flex flex-1 flex-col pt-4 pb-16 sm:pt-6">
+        <ActiveConnections connections={connections} />
+        <AvailableConnectors live={liveProviders} />
+      </main>
+    </PageShell>
   );
 }
 
-async function loadConnections(userId: string) {
+async function loadConnections(userId: string): Promise<ConnectionRecord[]> {
   try {
     return await listUserConnections(userId);
   } catch {
@@ -91,13 +45,232 @@ async function loadConnections(userId: string) {
   }
 }
 
-function formatDate(value: string | undefined) {
-  if (!value) {
-    return "never";
+function ActiveConnections({ connections }: { connections: ConnectionRecord[] }) {
+  return (
+    <section
+      className="folio-fade-up"
+      style={{ animationDelay: "80ms" }}
+    >
+      <SectionHeading
+        id="active"
+        meta={
+          connections.length === 0
+            ? "none yet"
+            : `${connections.length} active`
+        }
+      >
+        active
+      </SectionHeading>
+
+      {connections.length === 0 ? (
+        <EmptyActiveBlock />
+      ) : (
+        <div className="folio-tree">
+          <p className="folio-tree__root">~/connections/</p>
+          <ul className="folio-tree__list grid grid-cols-1 gap-3 md:gap-4">
+            {connections.map((connection, index) => (
+              <ActiveRow
+                key={connection.connectionId}
+                connection={connection}
+                isLast={index === connections.length - 1}
+              />
+            ))}
+          </ul>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function ActiveRow({
+  connection,
+  isLast,
+}: {
+  connection: ConnectionRecord;
+  isLast: boolean;
+}) {
+  const branch = isLast ? "└──" : "├──";
+  const host = PROVIDER_HOSTS[connection.provider] ?? connection.provider;
+  const hasError = connection.status === "failed" || connection.lastSyncError;
+
+  return (
+    <li className="folio-card">
+      <div className="folio-card__head">
+        <h3 className="folio-card__title">
+          <span
+            aria-hidden
+            className="folio-tree__branch"
+            style={{ marginRight: "0.4em" }}
+          >
+            {branch}
+          </span>
+          <span style={{ color: "var(--vermillion)" }}>{host}</span>
+          <span style={{ color: "var(--ink-faint)" }}>/</span>
+          <span>{connection.providerAccountLogin}</span>
+        </h3>
+        <span className="folio-card__meta">
+          <StatusDot status={connection.status} hasError={!!hasError} />
+          {connection.status}
+        </span>
+      </div>
+
+      <p className="folio-card__body">
+        {connection.displayName !== connection.providerAccountLogin ? (
+          <>
+            <span style={{ color: "var(--ink)" }}>{connection.displayName}</span>
+            <span style={{ color: "var(--ink-faint)" }}> · </span>
+          </>
+        ) : null}
+        <span>last sync {formatRelative(connection.lastSyncFinishedAt)}</span>
+        <span style={{ color: "var(--ink-faint)" }}> · </span>
+        <span>next sync {formatRelative(connection.nextSyncAt)}</span>
+      </p>
+
+      {hasError ? (
+        <p className="mt-2 text-[12px]" style={{ color: "var(--vermillion)" }}>
+          {connection.lastSyncError ?? "sync failed"}
+        </p>
+      ) : null}
+
+      <div className="mt-4 flex flex-wrap items-center gap-3 text-[11px] uppercase tracking-[0.16em]">
+        <Link
+          href={`/?path=${encodeURIComponent(
+            `/${connection.outputPrefix}`,
+          )}`}
+          className="folio-link"
+        >
+          open in browser
+        </Link>
+        <span style={{ color: "var(--ink-faint)" }}>·</span>
+        <form
+          action={`/api/connections/${connection.provider}/${connection.connectionId}/disconnect`}
+          method="post"
+        >
+          <button type="submit" className="folio-link folio-link--muted">
+            disconnect
+          </button>
+        </form>
+      </div>
+    </li>
+  );
+}
+
+function EmptyActiveBlock() {
+  return (
+    <div
+      className="border border-dashed p-8 text-center"
+      style={{
+        borderColor: "color-mix(in srgb, var(--ink) 30%, transparent)",
+        color: "var(--ink-soft)",
+      }}
+    >
+      <p className="folio-marginalia mb-2">nothing connected yet</p>
+      <p className="text-[13px]">
+        Pick a service below and we&rsquo;ll render its data into your folio.
+      </p>
+    </div>
+  );
+}
+
+function AvailableConnectors({ live }: { live: Set<string> }) {
+  return (
+    <section
+      className="folio-fade-up mt-12 sm:mt-16"
+      style={{ animationDelay: "140ms" }}
+    >
+      <SectionHeading id="available" meta={`${CONNECTORS.length} ready to mount`}>
+        available
+      </SectionHeading>
+
+      <div className="folio-tree">
+        <p className="folio-tree__root">~/available/</p>
+        <ul className="folio-tree__list">
+          {CONNECTORS.map((connector, index) => {
+            const isLast = index === CONNECTORS.length - 1;
+            const isConnected = live.has(connector.provider);
+            return (
+              <li key={connector.provider} className="folio-tree__node">
+                <Link
+                  href={`/api/connections/${connector.provider}/start`}
+                  className="folio-tree__row"
+                  aria-label={`connect ${connector.displayName}`}
+                >
+                  <span aria-hidden className="folio-tree__branch">
+                    {isLast ? "└──" : "├──"}{" "}
+                  </span>
+                  <span className="folio-tree__domain">
+                    {PROVIDER_HOSTS[connector.provider] ?? connector.provider}
+                  </span>
+                  <span className="folio-tree__sub">
+                    {" "}
+                    — {connector.description.toLowerCase()}
+                  </span>
+                  {isConnected ? (
+                    <span className="folio-tree__tag" style={{ color: "var(--vermillion)", borderColor: "var(--vermillion)" }}>
+                      connected
+                    </span>
+                  ) : null}
+                  <span aria-hidden className="folio-tree__arrow">
+                    →
+                  </span>
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+      </div>
+    </section>
+  );
+}
+
+function StatusDot({
+  status,
+  hasError,
+}: {
+  status: string;
+  hasError: boolean;
+}) {
+  const color = hasError
+    ? "var(--vermillion)"
+    : status === "active"
+      ? "var(--vermillion)"
+      : status === "syncing"
+        ? "var(--ink)"
+        : "var(--ink-faint)";
+
+  return (
+    <span
+      aria-hidden
+      className="inline-block h-1.5 w-1.5 -translate-y-0.5"
+      style={{ backgroundColor: color, marginRight: "0.55em" }}
+    />
+  );
+}
+
+function formatRelative(value: string | undefined) {
+  if (!value) return "never";
+  const target = new Date(value).getTime();
+  const now = Date.now();
+  const diffSeconds = Math.round((target - now) / 1000);
+  const absSeconds = Math.abs(diffSeconds);
+  const past = diffSeconds < 0;
+
+  const formats: { unit: Intl.RelativeTimeFormatUnit; seconds: number }[] = [
+    { unit: "year", seconds: 31536000 },
+    { unit: "month", seconds: 2592000 },
+    { unit: "week", seconds: 604800 },
+    { unit: "day", seconds: 86400 },
+    { unit: "hour", seconds: 3600 },
+    { unit: "minute", seconds: 60 },
+    { unit: "second", seconds: 1 },
+  ];
+
+  for (const { unit, seconds } of formats) {
+    if (absSeconds >= seconds) {
+      const count = Math.round(absSeconds / seconds);
+      return past ? `${count} ${unit}${count === 1 ? "" : "s"} ago` : `in ${count} ${unit}${count === 1 ? "" : "s"}`;
+    }
   }
 
-  return new Intl.DateTimeFormat("en", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(value));
+  return past ? "just now" : "any moment";
 }
