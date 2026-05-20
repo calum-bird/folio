@@ -116,13 +116,12 @@ export function SectionHeading({
   id,
   className,
 }: SectionHeadingProps) {
-  const marker = level === 1 ? "#" : level === 2 ? "##" : "###";
   const size =
     level === 1
-      ? "text-[34px] sm:text-[44px]"
+      ? "text-[38px] sm:text-[52px]"
       : level === 2
-        ? "text-[26px] sm:text-[34px]"
-        : "text-[20px] sm:text-[24px]";
+        ? "text-[30px] sm:text-[40px]"
+        : "text-[22px] sm:text-[28px]";
 
   return (
     <div
@@ -131,8 +130,11 @@ export function SectionHeading({
         "mb-6 flex items-baseline justify-between gap-4 " + (className ?? "")
       }
     >
-      <h2 className={`folio-display ${size} leading-none`} style={{ color: "var(--ink)" }}>
-        <span style={{ color: "var(--vermillion)" }}>{marker}</span> {children}
+      <h2
+        className={`folio-serif ${size}`}
+        style={{ color: "var(--ink)" }}
+      >
+        {children}
       </h2>
       {meta ? (
         <span

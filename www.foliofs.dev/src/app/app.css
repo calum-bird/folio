@@ -99,6 +99,13 @@
   line-height: 0.92;
 }
 
+.folio-serif {
+  font-family: var(--font-serif), "Times New Roman", Georgia, serif;
+  font-weight: 400;
+  letter-spacing: -0.018em;
+  line-height: 1;
+}
+
 .folio-marginalia {
   font-family: var(--font-mono), monospace;
   font-size: 11px;

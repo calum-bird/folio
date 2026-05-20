@@ -9,7 +9,8 @@
   --font-sans: var(--font-mono);
   --font-mono: var(--font-mono);
   --font-display: var(--font-display);
-  --font-heading: var(--font-display);
+  --font-serif: var(--font-serif);
+  --font-heading: var(--font-serif);
 
   /* core editorial palette */
   --color-paper: var(--paper);

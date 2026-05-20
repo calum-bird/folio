@@ -1,6 +1,6 @@
 import { ClerkProvider } from "@clerk/nextjs";
 import type { Metadata } from "next";
-import { Fragment_Mono, JetBrains_Mono } from "next/font/google";
+import { Fragment_Mono, JetBrains_Mono, Tinos } from "next/font/google";
 
 import "./globals.css";
 import "./app.css";
@@ -15,6 +15,17 @@ const fragmentMono = Fragment_Mono({
   weight: "400",
   subsets: ["latin"],
   variable: "--font-display",
+});
+
+// Brand guide specifies Tiempos Text (Klim, commercial); Tinos is the closest
+// freely available Times-family analog (classical proportions, bracketed
+// serifs, high stroke contrast) and serves as our open substitute, matching
+// the same choice already used in the wordmark/lockup SVGs.
+const tinos = Tinos({
+  weight: ["400", "700"],
+  style: ["normal", "italic"],
+  subsets: ["latin"],
+  variable: "--font-serif",
 });
 
 export const metadata: Metadata = {
@@ -35,6 +46,7 @@ export default function RootLayout({
         "h-full antialiased",
         jetbrainsMono.variable,
         fragmentMono.variable,
+        tinos.variable,
         "font-mono",
       )}
     >
