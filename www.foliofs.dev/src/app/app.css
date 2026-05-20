@@ -14,6 +14,32 @@
    .folio-tree--files  : variant used by the file browser
    ────────────────────────────────────────────────────────────────── */
 
+/* ── brand mark ───────────────────────────────────────────── */
+
+.folio-brand-link {
+  display: inline-flex;
+  align-items: center;
+  transition: opacity 220ms ease;
+}
+
+.folio-brand-link:hover,
+.folio-brand-link:focus-visible {
+  opacity: 0.75;
+  outline: none;
+}
+
+.folio-brand-mark {
+  display: block;
+  height: 22px;
+  width: auto;
+}
+
+@media (min-width: 640px) {
+  .folio-brand-mark {
+    height: 26px;
+  }
+}
+
 /* ── page shell ───────────────────────────────────────────── */
 
 .folio-page {
@@ -249,99 +275,148 @@
   letter-spacing: 0.14em;
 }
 
-/* ── install panel ────────────────────────────────────────── */
+/* ── path badge (rotating sample paths) ───────────────────── */
 
-.folio-install {
-  max-width: 760px;
-  border: 1px solid var(--ink);
-  background:
-    linear-gradient(
-      135deg,
-      color-mix(in srgb, var(--paper-deep) 72%, transparent),
-      color-mix(in srgb, var(--paper) 88%, var(--ink) 12%)
-    );
-}
-
-.folio-install__header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 1rem;
-  border-bottom: 1px solid color-mix(in srgb, var(--ink) 26%, transparent);
-  padding: 1rem 1.15rem;
-}
-
-.folio-install__title {
-  margin-top: 0.35rem;
-  font-family: var(--font-display), ui-monospace, monospace;
-  font-size: 22px;
-  letter-spacing: -0.035em;
+.folio-badge {
+  display: inline-block;
+  vertical-align: 0.04em;
+  padding: 0.1em 0.45em;
+  background-color: color-mix(in srgb, var(--ink) 9%, transparent);
   color: var(--ink);
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 0.88em;
+  letter-spacing: -0.005em;
+  cursor: default;
+  white-space: nowrap;
+  transition: background-color 220ms ease;
 }
 
-.folio-install__command {
+.folio-badge:hover,
+.folio-badge:focus-visible {
+  background-color: color-mix(in srgb, var(--ink) 16%, transparent);
+  outline: none;
+}
+
+.folio-badge__path {
+  display: inline-block;
+  animation: folio-badge-in 320ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes folio-badge-in {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .folio-badge__path {
+    animation: none;
+  }
+}
+
+/* ── install CTA ──────────────────────────────────────────── */
+
+.folio-install-cta {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: 0.75rem;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  border-bottom: 1px solid color-mix(in srgb, var(--ink) 18%, transparent);
-  padding: 1rem 1.15rem;
-  overflow-x: auto;
-  white-space: nowrap;
-  font-size: 13px;
+  gap: 0.85rem;
+  max-width: 640px;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--vermillion);
+  background-color: color-mix(in srgb, var(--paper-deep) 55%, transparent);
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 14px;
+  color: var(--ink);
+  transition:
+    border-color 220ms ease,
+    background-color 220ms ease,
+    box-shadow 220ms ease;
 }
 
 @media (min-width: 640px) {
-  .folio-install__command {
-    font-size: 15px;
+  .folio-install-cta {
+    font-size: 16px;
+    padding: 1rem 1.15rem;
   }
 }
 
-.folio-install__prompt {
-  color: var(--vermillion);
+.folio-install-cta:focus-within {
+  box-shadow: 0 0 0 1px var(--vermillion);
 }
 
-.folio-install__steps {
-  list-style: none;
-  margin: 0;
-  padding: 0.75rem 1.15rem 1rem;
-}
-
-.folio-install__step {
-  display: grid;
-  grid-template-columns: 3rem minmax(8rem, 1fr) minmax(0, 1.25fr);
-  gap: 1rem;
-  align-items: baseline;
-  padding: 0.42rem 0;
-  font-size: 12px;
-}
-
-.folio-install__step + .folio-install__step {
-  border-top: 1px dashed color-mix(in srgb, var(--ink) 18%, transparent);
-}
-
-.folio-install__step-index {
+.folio-install-cta__prompt {
   color: var(--vermillion);
   font-family: var(--font-display), ui-monospace, monospace;
+  font-size: 0.92em;
+  user-select: none;
 }
 
-.folio-install__step-label {
-  color: var(--ink-soft);
-}
-
-.folio-install__step-command {
-  color: var(--ink);
+.folio-install-cta__command {
   overflow-x: auto;
   white-space: nowrap;
+  letter-spacing: 0.005em;
+  color: var(--ink);
+  -webkit-mask-image: linear-gradient(90deg, black 92%, transparent);
+  mask-image: linear-gradient(90deg, black 92%, transparent);
 }
 
-@media (max-width: 640px) {
-  .folio-install__step {
-    grid-template-columns: 2.5rem minmax(0, 1fr);
-  }
+.folio-install-cta__command::selection {
+  background: var(--vermillion);
+  color: var(--paper);
+}
 
-  .folio-install__step-command {
-    grid-column: 2;
+.folio-install-cta__copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45em;
+  padding: 0.45em 0.7em;
+  border: 1px solid color-mix(in srgb, var(--ink) 32%, transparent);
+  background: transparent;
+  color: var(--ink-soft);
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition:
+    color 180ms ease,
+    border-color 180ms ease,
+    background 180ms ease;
+}
+
+.folio-install-cta__copy:hover,
+.folio-install-cta__copy:focus-visible {
+  color: var(--vermillion);
+  border-color: var(--vermillion);
+  outline: none;
+}
+
+.folio-install-cta__copy[data-copied="true"] {
+  color: var(--paper);
+  background: var(--vermillion);
+  border-color: var(--vermillion);
+}
+
+@media (max-width: 540px) {
+  .folio-install-cta {
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-areas:
+      "prompt command"
+      "copy   copy";
+    row-gap: 0.75rem;
+  }
+  .folio-install-cta__prompt { grid-area: prompt; }
+  .folio-install-cta__command { grid-area: command; }
+  .folio-install-cta__copy {
+    grid-area: copy;
+    justify-self: stretch;
+    justify-content: center;
   }
 }
 

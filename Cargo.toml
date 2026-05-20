@@ -46,6 +46,7 @@ sha2 = "0.10"
 tao = "0.35"
 tray-icon = "0.24"
 url = "2"
+image = { version = "0.25", default-features = false, features = ["png"] }
 
 [profile.release]
 lto = "thin"

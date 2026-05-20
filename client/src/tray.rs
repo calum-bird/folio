@@ -155,6 +155,7 @@ impl TrayState {
             .with_menu(Box::new(self.menu.menu.clone()))
             .with_tooltip("FolioFS")
             .with_icon(folio_icon())
+            .with_icon_as_template(true)
             .build()
         {
             Ok(icon) => self.tray_icon = Some(icon),
@@ -328,18 +329,10 @@ fn spawn_status_bridge(
 }
 
 fn folio_icon() -> Icon {
-    let width = 16;
-    let height = 16;
-    let mut rgba = Vec::with_capacity(width * height * 4);
-    for y in 0..height {
-        for x in 0..width {
-            let on = x == 3 || x == 12 || y == 3 || y == 12 || (x > 5 && x < 10 && y > 5 && y < 10);
-            if on {
-                rgba.extend_from_slice(&[34, 82, 255, 255]);
-            } else {
-                rgba.extend_from_slice(&[0, 0, 0, 0]);
-            }
-        }
-    }
-    Icon::from_rgba(rgba, width as u32, height as u32).expect("valid embedded icon")
+    let bytes = include_bytes!("../assets/tray-icon.png");
+    let image = image::load_from_memory(bytes)
+        .expect("embedded tray icon PNG")
+        .into_rgba8();
+    let (width, height) = image.dimensions();
+    Icon::from_rgba(image.into_raw(), width, height).expect("valid embedded tray icon")
 }

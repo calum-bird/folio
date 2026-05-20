@@ -29,7 +29,8 @@ sha2 = { workspace = true }
 tao = { workspace = true, optional = true }
 tray-icon = { workspace = true, optional = true }
 url = { workspace = true }
+image = { workspace = true, optional = true }
 
 [features]
 default = []
-tray = ["dep:tao", "dep:tray-icon"]
+tray = ["dep:image", "dep:tao", "dep:tray-icon"]

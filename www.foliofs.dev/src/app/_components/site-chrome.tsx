@@ -2,8 +2,6 @@ import { UserButton } from "@clerk/nextjs";
 import { auth } from "@clerk/nextjs/server";
 import Link from "next/link";
 
-const SOURCE_URL = "https://github.com/calumbird/folio";
-
 type PageShellProps = {
   children: React.ReactNode;
   /** Vertical content alignment in the main column. Defaults to "start". */
@@ -37,16 +35,10 @@ export async function SiteHeader() {
 
   return (
     <header className="flex items-center justify-between py-6 sm:py-8">
-      <Link href="/" aria-label="FolioFS" className="group flex items-center gap-3">
-        <Glyph className="h-5 w-5 transition-colors group-hover:text-vermillion" />
-        <span className="folio-display text-[20px] tracking-tight sm:text-[22px]">
-          folio.fs
-        </span>
+      <Link href="/" aria-label="FolioFS" className="folio-brand-link">
+        <BrandLockup className="folio-brand-mark" />
       </Link>
       <nav className="flex items-center gap-6 text-[12px] uppercase tracking-[0.18em]">
-        <Link href={SOURCE_URL} className="folio-link">
-          source
-        </Link>
         {signedIn ? (
           <>
             <Link href="/app" className="folio-link">
@@ -82,7 +74,13 @@ export function SiteFooter() {
       style={{ borderColor: "var(--ink)", color: "var(--ink-soft)" }}
     >
       <div className="flex items-center gap-3">
-        <Glyph className="h-3.5 w-3.5" />
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src="/branding/icon/foliofs-icon.svg"
+          alt=""
+          aria-hidden
+          className="h-3.5 w-3.5"
+        />
         <span>foliofs.dev</span>
       </div>
       <div className="flex items-center gap-5">
@@ -201,20 +199,19 @@ export function PathDisplay({
   );
 }
 
-export function Glyph({ className }: { className?: string }) {
+function BrandLockup({ className }: { className?: string }) {
   return (
-    <svg
-      viewBox="0 0 24 24"
-      className={className}
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.6"
-      aria-hidden
-    >
-      <path d="M3 6h7l2 3h9v11H3z" />
-      <line x1="7" y1="13" x2="17" y2="13" />
-      <line x1="7" y1="16" x2="14" y2="16" />
-    </svg>
+    <picture>
+      <source
+        srcSet="/branding/lockup/foliofs-lockup-dark.svg"
+        media="(prefers-color-scheme: dark)"
+      />
+      <img
+        src="/branding/lockup/foliofs-lockup-light.svg"
+        alt="FolioFS"
+        className={className}
+      />
+    </picture>
   );
 }
 
