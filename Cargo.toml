@@ -40,7 +40,7 @@ jsonwebtoken = "9"
 axum = "0.7"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
 bytes = "1"
-keyring = "3.6"
+keyring = { version = "3.6", features = ["apple-native"] }
 rand = "0.8"
 sha2 = "0.10"
 tao = "0.35"
