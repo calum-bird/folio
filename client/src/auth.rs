@@ -21,10 +21,10 @@ use url::Url;
 
 const AUTHORIZE_URL: &str = "https://settled-hamster-79.clerk.accounts.dev/oauth/authorize";
 const TOKEN_URL: &str = "https://settled-hamster-79.clerk.accounts.dev/oauth/token";
-const ME_URL: &str = "https://settled-hamster-79.clerk.accounts.dev/v1/me";
 const CLIENT_ID: &str = "rjHHgXHHq5Qhkqld";
 const CALLBACK_PATH: &str = "/callback";
 const ACCESS_TOKEN_KEY: &str = "access_token";
+const ACCESS_TOKEN_EXPIRES_AT_KEY: &str = "access_token_expires_at";
 const REFRESH_TOKEN_KEY: &str = "refresh_token";
 
 /// Minimum sleep between refresh attempts. Used both as a floor on the proactive
@@ -124,6 +124,7 @@ impl AuthManager {
     ) -> Result<Self> {
         if force {
             delete_keyring(keyring_service, ACCESS_TOKEN_KEY)?;
+            delete_keyring(keyring_service, ACCESS_TOKEN_EXPIRES_AT_KEY)?;
             delete_keyring(keyring_service, REFRESH_TOKEN_KEY)?;
         }
         let mode = if force {
@@ -136,6 +137,7 @@ impl AuthManager {
 
     pub fn logout_keyring(keyring_service: &str) -> Result<()> {
         delete_keyring(keyring_service, ACCESS_TOKEN_KEY)?;
+        delete_keyring(keyring_service, ACCESS_TOKEN_EXPIRES_AT_KEY)?;
         delete_keyring(keyring_service, REFRESH_TOKEN_KEY)?;
         Ok(())
     }
@@ -172,9 +174,7 @@ impl AuthManager {
         let token = refresh_access_token(auth)
             .await
             .context("forced token refresh")?;
-        let user = fetch_user_profile(auth, &token.bearer)
-            .await
-            .unwrap_or_else(|_| user_info_from_token(&token.bearer));
+        let user = user_info_from_token(&token.bearer);
         *self.state.token.write().await = Some(token);
         *self.state.user.write().await = user;
         Ok(())
@@ -216,12 +216,7 @@ async fn build_clerk_manager(
         refresh_token: RwLock::new(refresh_token),
     };
     let token = initial_token(&auth, mode).await?;
-    let user = fetch_user_profile(&auth, &token.bearer)
-        .await
-        .unwrap_or_else(|err| {
-            tracing::warn!(error = %err, "failed to fetch Clerk /v1/me; falling back to JWT sub");
-            user_info_from_token(&token.bearer)
-        });
+    let user = user_info_from_token(&token.bearer);
     let state = AuthState {
         mode: AuthMode::Clerk(auth),
         token: RwLock::new(Some(token)),
@@ -244,9 +239,7 @@ async fn refresh_loop(state: Arc<AuthState>) {
         match refresh_access_token(auth).await {
             Ok(token) => {
                 tracing::info!("token refreshed");
-                let user = fetch_user_profile(auth, &token.bearer)
-                    .await
-                    .unwrap_or_else(|_| user_info_from_token(&token.bearer));
+                let user = user_info_from_token(&token.bearer);
                 *state.token.write().await = Some(token);
                 *state.user.write().await = user;
             }
@@ -368,9 +361,15 @@ async fn store_token_response(
         );
     }
 
-    let expires_at = token_expiry(&resp.access_token)
-        .unwrap_or_else(|| Instant::now() + Duration::from_secs(resp.expires_in));
+    let expires_at_epoch = token_expiry_epoch(&resp.access_token)
+        .unwrap_or_else(|| current_epoch_secs().saturating_add(resp.expires_in));
+    let expires_at = instant_from_epoch(expires_at_epoch);
     write_keyring(&auth.keyring_service, ACCESS_TOKEN_KEY, &resp.access_token)?;
+    write_keyring(
+        &auth.keyring_service,
+        ACCESS_TOKEN_EXPIRES_AT_KEY,
+        &expires_at_epoch.to_string(),
+    )?;
     tracing::debug!(service = %auth.keyring_service, "stored access token in keyring");
 
     if let Some(refresh_token) = resp.refresh_token {
@@ -389,9 +388,7 @@ fn load_valid_access_token(service: &str) -> Result<Option<TokenState>> {
     let Ok(access_token) = read_keyring(service, ACCESS_TOKEN_KEY) else {
         return Ok(None);
     };
-    let Some(expires_at) = token_expiry(&access_token) else {
-        return Ok(None);
-    };
+    let expires_at = load_access_token_expiry(service, &access_token)?;
     if expires_at <= Instant::now() + MIN_REFRESH_INTERVAL {
         return Ok(None);
     }
@@ -399,6 +396,16 @@ fn load_valid_access_token(service: &str) -> Result<Option<TokenState>> {
         bearer: access_token,
         expires_at,
     }))
+}
+
+fn load_access_token_expiry(service: &str, access_token: &str) -> Result<Instant> {
+    if let Ok(value) = read_keyring(service, ACCESS_TOKEN_EXPIRES_AT_KEY) {
+        if let Ok(epoch) = value.parse::<u64>() {
+            return Ok(instant_from_epoch(epoch));
+        }
+        tracing::debug!(service, "stored access token expiry was not a unix timestamp");
+    }
+    token_expiry(access_token).context("cached access token has no readable expiry")
 }
 
 async fn wait_for_callback(listener: TcpListener, expected_state: &str) -> Result<String> {
@@ -496,14 +503,29 @@ impl PkcePair {
 }
 
 fn token_expiry(access_token: &str) -> Option<Instant> {
+    token_expiry_epoch(access_token).map(instant_from_epoch)
+}
+
+fn token_expiry_epoch(access_token: &str) -> Option<u64> {
     let payload = access_token.split('.').nth(1)?;
     let decoded = base64::engine::general_purpose::URL_SAFE_NO_PAD
         .decode(payload)
         .ok()?;
     let claims: JwtClaims = serde_json::from_slice(&decoded).ok()?;
-    let now = SystemTime::now().duration_since(UNIX_EPOCH).ok()?.as_secs();
-    let remaining = claims.exp.saturating_sub(now);
-    Some(Instant::now() + Duration::from_secs(remaining))
+    Some(claims.exp)
+}
+
+fn instant_from_epoch(epoch: u64) -> Instant {
+    let now = current_epoch_secs();
+    let remaining = epoch.saturating_sub(now);
+    Instant::now() + Duration::from_secs(remaining)
+}
+
+fn current_epoch_secs() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or_default()
 }
 
 #[derive(Deserialize)]
@@ -511,6 +533,10 @@ struct JwtClaims {
     exp: u64,
     #[serde(default)]
     sub: Option<String>,
+    #[serde(default)]
+    email: Option<String>,
+    #[serde(default)]
+    name: Option<String>,
 }
 
 fn user_info_from_token(access_token: &str) -> Option<AuthUser> {
@@ -518,81 +544,9 @@ fn user_info_from_token(access_token: &str) -> Option<AuthUser> {
     let subject = claims.sub.clone()?;
     Some(AuthUser {
         subject,
-        email: None,
-        name: None,
+        email: claims.email,
+        name: claims.name,
     })
-}
-
-async fn fetch_user_profile(auth: &ClerkAuth, access_token: &str) -> Result<Option<AuthUser>> {
-    let subject = user_info_from_token(access_token)
-        .map(|user| user.subject)
-        .context("access token missing sub")?;
-    let body = auth
-        .http
-        .get(ME_URL)
-        .bearer_auth(access_token)
-        .send()
-        .await
-        .context("Clerk /v1/me GET")?
-        .error_for_status()
-        .context("Clerk /v1/me status")?
-        .json::<serde_json::Value>()
-        .await
-        .context("decode Clerk /v1/me response")?;
-    tracing::debug!(me = ?body, "decoded Clerk /v1/me");
-    let response = body.get("response").unwrap_or(&body);
-    let name = display_name_from_me(response);
-    let email = email_from_me(response);
-    Ok(Some(AuthUser {
-        subject,
-        email,
-        name,
-    }))
-}
-
-fn display_name_from_me(value: &serde_json::Value) -> Option<String> {
-    for key in ["full_name", "name", "display_name"] {
-        if let Some(name) = non_empty_string(value.get(key)) {
-            return Some(name);
-        }
-    }
-    let first = non_empty_string(value.get("first_name"));
-    let last = non_empty_string(value.get("last_name"));
-    match (first, last) {
-        (Some(first), Some(last)) => Some(format!("{first} {last}")),
-        (Some(first), None) => Some(first),
-        (None, Some(last)) => Some(last),
-        _ => None,
-    }
-}
-
-fn email_from_me(value: &serde_json::Value) -> Option<String> {
-    if let Some(email) = non_empty_string(value.get("email")) {
-        return Some(email);
-    }
-    if let Some(email) = non_empty_string(value.get("email_address")) {
-        return Some(email);
-    }
-
-    let primary_id = non_empty_string(value.get("primary_email_address_id"));
-    let emails = value.get("email_addresses")?.as_array()?;
-    if let Some(primary_id) = primary_id {
-        for email in emails {
-            if non_empty_string(email.get("id")).as_deref() == Some(primary_id.as_str()) {
-                return non_empty_string(email.get("email_address"));
-            }
-        }
-    }
-    emails
-        .iter()
-        .find_map(|email| non_empty_string(email.get("email_address")))
-}
-
-fn non_empty_string(value: Option<&serde_json::Value>) -> Option<String> {
-    value?
-        .as_str()
-        .filter(|s| !s.is_empty())
-        .map(ToOwned::to_owned)
 }
 
 fn decode_claims(access_token: &str) -> Option<JwtClaims> {
